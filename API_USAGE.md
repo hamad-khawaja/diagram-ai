@@ -8,15 +8,19 @@
 Generate a diagram from a natural language description using the diagrams library and OpenAI API.
 
 
+
 **Request Body (JSON):**
 ```
 {
-  "description": "<Your architecture description>"
+  "description": "<Your architecture description>",
+  "provider": "aws"   // Optional: "aws", "azure", or "gcp". If omitted or invalid, defaults to generic instructions.
 }
 ```
 
+
 **Note:**
-> The OpenAI API key must be set as the `OPENAI_API_KEY` environment variable on the server or Docker container. **Do not** include the API key in the request body.
+- The `provider` field is optional. If set to `"aws"`, `"azure"`, or `"gcp"`, the API will use cloud-specific instructions for the LLM. If omitted or unrecognized, generic instructions are used.
+- The OpenAI API key must be set as the `OPENAI_API_KEY` environment variable on the server or Docker container. **Do not** include the API key in the request body.
 
 **Response (Success):**
 ```
@@ -34,12 +38,14 @@ Generate a diagram from a natural language description using the diagrams librar
 ```
 
 
+
 **Example cURL:**
 ```
 curl -X POST http://localhost:5000/generate \
   -H "Content-Type: application/json" \
   -d '{
-    "description": "AWS web app with EC2 and RDS"
+    "description": "AWS web app with EC2 and RDS",
+    "provider": "aws"
   }'
 ```
 

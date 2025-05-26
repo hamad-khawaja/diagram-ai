@@ -46,14 +46,30 @@ def generate_diagram():
         return jsonify({'error': 'Description must be a non-empty string.'}), 400
     logger.info(f"Received diagram generation request. Description: {str(description)[:100]}...")
 
-    # Read instructions.md
+
+    # --- Cloud Provider Detection and Instructions Selection ---
+
+    # --- Cloud Provider Selection from Request ---
+    provider = data.get('provider') if data else None
+    if provider:
+        provider = provider.strip().lower()
+
+    if provider == "aws":
+        instructions_file = "instructions_aws.md"
+    elif provider == "azure":
+        instructions_file = "instructions_azure.md"
+    elif provider == "gcp":
+        instructions_file = "instructions_gcp.md"
+    else:
+        instructions_file = "instructions.md"
+        logger.info("No cloud provider specified in request. Falling back to instructions.md.")
 
     try:
-        with open('instructions.md', 'r') as f:
+        with open(instructions_file, 'r') as f:
             instructions = f.read()
     except Exception as e:
-        logger.error(f"Failed to read instructions.md: {e}")
-        return jsonify({'error': 'Failed to read instructions.md'}), 500
+        logger.error(f"Failed to read {instructions_file}: {e}")
+        return jsonify({'error': f'Failed to read {instructions_file}'}), 500
 
     # --- Input Validation ---
 
