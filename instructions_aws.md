@@ -39,25 +39,6 @@ with Diagram("AWS VPC Example", show=False):
 - Use only resources present in the diagrams library.
 - Check official docs for available AWS nodes.
 - Add comments and use meaningful names.
-# AWS (Amazon Web Services) Diagrams Instructions
-
-## Overview
-
-Diagrams lets you draw the Amazon Web Services system architecture in Python code. This guide covers all available AWS resources and how to create architecture diagrams using the diagrams library.
-
-## General Rules
-
-- Use only the diagrams library and its official documentation.
-- Only import resources from the allowed providers and modules listed below.
-- Always use a context manager (`with Diagram(...)`) and set `show=False` unless otherwise specified.
-- Use explicit loops for multiple node connections (never use group connection syntax like `node1 >> [node2, node3]`).
-- Add comments for clarity and use meaningful names for diagrams and nodes.
-
-## Basic Syntax
-
-### Simple AWS Diagram
-
-```python
 from diagrams import Diagram
 from diagrams.aws.compute import EC2
 from diagrams.aws.database import RDS
@@ -1201,26 +1182,6 @@ with Diagram("Grouped Workers", show=False, direction="TB"):
 - **Do not suggest using the library for infrastructure management or code generation**
 - **Do not suggest using the library for anything other than creating diagrams**
 - **Do not suggest using the library for anything other than creating cloud system architecture diagrams**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library**  
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines**  
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the task-specific instructions**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions** 
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues and the resource references**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues and the resource references and the important constraints**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference**
-
 
 - Always put Nodes inside a cluster or Edge to represent a group of related components.
 - Always layout the diagram in a way that is easy to understand and visually appealing.
