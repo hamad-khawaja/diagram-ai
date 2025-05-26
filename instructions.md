@@ -66,6 +66,7 @@ from diagrams.c4 import ...
 ## Essential Patterns and Best Practices
 
 ### 1. Basic Diagram Structure
+
 ```python
 from diagrams import Diagram
 from diagrams.aws.compute import EC2
