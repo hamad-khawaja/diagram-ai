@@ -1,12 +1,15 @@
 
 
+
 import os
 import logging
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
 from werkzeug.utils import secure_filename
+from flask_cors import CORS
 
 
 app = Flask(__name__)
+CORS(app, origins=["http://localhost:5173"])
 UPLOAD_FOLDER = 'diagrams/'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -61,8 +64,8 @@ def generate_diagram():
     elif provider == "gcp":
         instructions_file = "instructions_gcp.md"
     else:
-        instructions_file = "instructions.md"
-        logger.info("No cloud provider specified in request. Falling back to instructions.md.")
+        logger.info("No cloud provider specified in request. Returning error.")
+        return jsonify({'error': 'No cloud provider specified. Please set provider to aws, azure, or gcp.'}), 400
 
     try:
         with open(instructions_file, 'r') as f:
@@ -76,9 +79,9 @@ def generate_diagram():
     if not isinstance(description, str) or not description.strip():
         logger.warning("Description is not a non-empty string.")
         return jsonify({'error': 'Description must be a non-empty string.'}), 400
-    if len(description) > 1000:
+    if len(description) > 15000:
         logger.warning("Description is too long.")
-        return jsonify({'error': 'Description is too long (max 1000 chars).'}), 400
+        return jsonify({'error': 'Description is too long (max 15000 chars).'}), 400
 
     # --- OpenAI Error Handling ---
 

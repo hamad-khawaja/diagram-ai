@@ -17,7 +17,7 @@ def generate_code_openai(description, instructions):
             {"role": "user", "content": description}
         ],
         temperature=0,
-        max_tokens=1024,
+        max_tokens=15024,
         top_p=1
     )
     content = response.choices[0].message.content
