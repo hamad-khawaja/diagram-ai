@@ -1,63 +1,43 @@
-# GCP Diagrams Instructions
+# GCP Diagrams: Concise Instructions
 
-You are an AI assistant generating Python code using the diagrams library (https://diagrams.mingrammer.com/) to visualize GCP (Google Cloud Platform) architectures.
+Use the diagrams library (https://diagrams.mingrammer.com/) to generate GCP architecture diagrams.
 
-## Key Rules for GCP Diagrams
+**VPC Cluster Rules:**
+- Only place network and compute resources inside a VPC cluster:
+  - Compute Engine, Subnets (as clusters), Firewalls, Load Balancers, Cloud NAT, VPN Gateways, Routes
+- Do NOT place Cloud Storage, BigQuery, Cloud SQL, Cloud Functions, Pub/Sub, Spanner, Memorystore, Dataflow, Dataproc, App Engine, or any PaaS/SaaS service inside a VPC cluster.
 
-- **VPC Boundaries:**  
-  Only network-related resources and compute instances (e.g., Compute Engine, Subnets, Firewalls, Load Balancers, Cloud NAT, VPN Gateways) should be placed inside a VPC boundary (Cluster).  
-  Do **not** place Cloud Storage, BigQuery, Cloud Functions, Cloud SQL, Pub/Sub, or other managed/PaaS services inside a VPC cluster unless they are explicitly deployed into a subnet (rare for most GCP managed services).
+**Cluster Usage:**
+- `with Cluster("VPC <name>"):` for VPC
+- Nested: `with Cluster("Subnet <name>"):`
 
-- **Services that should NOT be inside a VPC cluster:**  
-  - Cloud Storage (GCS)
-  - BigQuery
-  - Cloud SQL
-  - Cloud Functions
-  - Pub/Sub
-  - Spanner
-  - Memorystore
-  - Dataflow, Dataproc
-  - App Engine
-  - Any SaaS or PaaS service not directly deployed into a subnet
+**Imports:**
+- Only use valid GCP resources from diagrams library: https://diagrams.mingrammer.com/docs/nodes/gcp/
 
-- **Services that CAN be inside a VPC cluster:**  
-  - Compute Engine (from diagrams.gcp.compute)
-  - Subnets (represented as clusters)
-  - Firewalls (from diagrams.gcp.network)
-  - Load Balancers (from diagrams.gcp.network)
-  - Cloud NAT, VPN Gateways
-  - Routes
+**Example:**
+```python
+from diagrams import Diagram, Cluster
+from diagrams.gcp.network import VPC, Subnets, Firewalls, LoadBalancers, CloudNAT
+from diagrams.gcp.compute import ComputeEngine
 
-- **Cluster Usage:**  
-  - Use `with Cluster("VPC <name>"):` for the VPC boundary.
-  - Use nested clusters for subnets: `with Cluster("Subnet <name>"):`.
+with Diagram("GCP VPC Example", show=False):
+    with Cluster("VPC my-vpc"):
+        with Cluster("Subnet web"):
+            web_vm = ComputeEngine("Web VM")
+            fw_web = Firewalls("FW Web")
+        with Cluster("Subnet db"):
+            db_vm = ComputeEngine("DB VM")
+            fw_db = Firewalls("FW DB")
+        nat = CloudNAT("NAT")
+        lb = LoadBalancers("LB")
+    lb >> web_vm
+    web_vm >> nat >> db_vm
+```
 
-- **Imports:**  
-  Only use valid resources from the diagrams library for GCP.  
-  Reference: https://diagrams.mingrammer.com/docs/nodes/gcp/
-
-- **Example Pattern:**
-  ```python
-  from diagrams import Diagram, Cluster
-  from diagrams.gcp.network import VPC, Subnets, Firewalls, LoadBalancers, CloudNAT
-  from diagrams.gcp.compute import ComputeEngine
-
-  with Diagram("GCP VPC Example", show=False):
-      with Cluster("VPC my-vpc"):
-          with Cluster("Subnet web"):
-              web_vm = ComputeEngine("Web VM")
-              fw_web = Firewalls("FW Web")
-          with Cluster("Subnet db"):
-              db_vm = ComputeEngine("DB VM")
-              fw_db = Firewalls("FW DB")
-          nat = CloudNAT("NAT")
-          lb = LoadBalancers("LB")
-      lb >> web_vm
-      web_vm >> nat >> db_vm
-  ```
-
-- **Best Practices:**
-  - Never use or invent resources not present in the diagrams library.
+**Best Practices:**
+- Use only resources present in the diagrams library.
+- Check official docs for available GCP nodes.
+- Add comments and use meaningful names.
   - Always check the official diagrams documentation for available GCP nodes.
   - Add comments for clarity.
   - Use meaningful names for clusters and nodes.
@@ -884,26 +864,6 @@ for n in [node1, node2]:
 - **Do not suggest using the library for infrastructure management or code generation**
 - **Do not suggest using the library for anything other than creating diagrams**
 - **Do not suggest using the library for anything other than creating cloud system architecture diagrams**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library**  
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines**  
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the task-specific instructions**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions** 
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues and the resource references**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues and the resource references and the important constraints**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions**
-- **Do not suggest using the library for anything other than creating cloud system architecture diagrams using Python code with the diagrams library and the official documentation and the latest version and the installation instructions and the core classes and imports and the essential patterns and best practices and the code generation guidelines and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference and the troubleshooting common issues and the resource references and the important constraints and the task-specific instructions and the common architecture patterns to reference**
-
 
 - Always put Nodes inside a cluster or Edge to represent a group of related components.
 - Always layout the diagram in a way that is easy to understand and visually appealing.
