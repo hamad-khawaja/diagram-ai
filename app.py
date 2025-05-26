@@ -108,6 +108,7 @@ def generate_diagram():
         logger.warning(f"Code failed whitelist: {bad_line}")
         return jsonify({'error': f'Invalid or unsupported import in generated code: {bad_line}', 'raw_code_file': code_filename}), 400
 
+    # Sanitize: always inject filename="generated_diagram" into every with Diagram(...) statement
     code = re.sub(r'filename\s*=\s*["\']([^"\']+)["\']', 'filename="generated_diagram"', code)
     code = re.sub(r'outformat\s*=\s*["\']([^"\']+)["\']', 'outformat="png"', code)
     code_filename = os.path.join(UPLOAD_FOLDER, 'generated_diagram.py')
@@ -148,11 +149,53 @@ def generate_diagram():
         os.chdir(cwd)
         return jsonify({'error': f'Diagram execution error: {str(e)}'}), 500
     os.chdir(cwd)
-    for fname in os.listdir(UPLOAD_FOLDER):
-        if fname.endswith('.png'):
-            diagram_path = os.path.join(UPLOAD_FOLDER, fname)
-            logger.info(f"Diagram generated: {diagram_path}")
-            return jsonify({'diagram_path': diagram_path, 'image_url': f'/diagrams/{fname}'})
+    # Try to infer the output image filename from the generated code
+    import re as _re
+    image_candidates = []
+    try:
+        with open(os.path.join(UPLOAD_FOLDER, 'generated_diagram.py'), 'r') as f:
+            code_content = f.read()
+        # Look for filename argument
+        m = _re.search(r'filename\s*=\s*["\']([^"\']+)["\']', code_content)
+        if m:
+            base = m.group(1)
+            # diagrams library appends .png if not present
+            if not base.endswith('.png'):
+                base_png = base + '.png'
+            else:
+                base_png = base
+            # If base contains path separators, search for that path
+            image_candidates.append(os.path.join(UPLOAD_FOLDER, base_png))
+            # Also try just the basename in case it was saved flat
+            image_candidates.append(os.path.join(UPLOAD_FOLDER, os.path.basename(base_png)))
+        else:
+            # Try to infer from Diagram title
+            m2 = _re.search(r'with Diagram\((?:["\'])(.*?)(?:["\'])', code_content)
+            if m2:
+                title = m2.group(1)
+                # diagrams library replaces spaces and slashes with underscores, lowercases, and may split on / for folders
+                title_clean = title.lower().replace(' ', '_').replace('/', '_')
+                image_candidates.append(os.path.join(UPLOAD_FOLDER, title_clean + '.png'))
+    except Exception as e:
+        logger.warning(f"Could not infer image filename from code: {e}")
+
+    # Search for candidates
+    for candidate in image_candidates:
+        if os.path.exists(candidate):
+            fname = os.path.relpath(candidate, UPLOAD_FOLDER)
+            image_url = f'/diagrams/{fname.replace(os.sep, "/")}'
+            logger.info(f"Diagram generated: {candidate}")
+            return jsonify({'diagram_path': candidate, 'image_url': image_url})
+
+    # Fallback: search for any PNG in UPLOAD_FOLDER and subfolders
+    for root, dirs, files in os.walk(UPLOAD_FOLDER):
+        for fname in files:
+            if fname.endswith('.png'):
+                diagram_path = os.path.join(root, fname)
+                rel_path = os.path.relpath(diagram_path, UPLOAD_FOLDER)
+                image_url = f'/diagrams/{rel_path.replace(os.sep, "/")}'
+                logger.info(f"Diagram generated: {diagram_path}")
+                return jsonify({'diagram_path': diagram_path, 'image_url': image_url})
     logger.error("Diagram image not found after code execution.")
     return jsonify({'error': 'Diagram image not found'}), 500
 

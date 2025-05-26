@@ -1,36 +1,30 @@
 from diagrams import Diagram, Cluster
-from diagrams.aws.network import VPC, InternetGateway, NATGateway
+from diagrams.aws.network import VPC, PublicSubnet, PrivateSubnet, InternetGateway
 from diagrams.aws.compute import EC2
+from diagrams.aws.database import RDS
 
-with Diagram("VPC with 3 Public and 3 Private Subnets (Multi-AZ)", show=False, direction="TB"):
+with Diagram("AWS VPC with Public/Private Subnets", show=False, direction="TB"):
     vpc = VPC("VPC")
     igw = InternetGateway("Internet Gateway")
     vpc >> igw
 
-    nat_gateways = []
-    public_ec2_list = []
-    private_ec2_list = []
+    with Cluster("Public Subnet"):
+        pub_subnet = PublicSubnet("Public Subnet")
+        ec2_public = EC2("EC2 Public")
 
-    # Represent each AZ
-    for i in range(1, 4):
-        with Cluster(f"AZ{i}"):
-            # Public Subnet
-            with Cluster("Public Subnet"):
-                pub_ec2 = EC2(f"Public EC2 {i}")
-                nat_gw = NATGateway(f"NAT GW {i}")
-                pub_ec2 >> nat_gw     # Public EC2 to NAT Gateway for completeness
-                nat_gw << igw         # NAT Gateway connected to IGW for outbound traffic
+    with Cluster("Private Subnet"):
+        priv_subnet = PrivateSubnet("Private Subnet")
+        ec2_private = EC2("EC2 Private")
+        rds = RDS("RDS DB")
 
-            # Private Subnet
-            with Cluster("Private Subnet"):
-                priv_ec2 = EC2(f"Private EC2 {i}")
-                priv_ec2 >> nat_gw    # Private EC2 uses NAT Gateway for outbound internet
+    # Connections
+    vpc >> pub_subnet
+    vpc >> priv_subnet
 
-            # Collect for overall connections if needed
-            nat_gateways.append(nat_gw)
-            public_ec2_list.append(pub_ec2)
-            private_ec2_list.append(priv_ec2)
+    pub_subnet >> ec2_public
+    priv_subnet >> ec2_private
+    priv_subnet >> rds
 
-    # Show that all NAT Gateways are inside VPC
-    for nat_gw in nat_gateways:
-        vpc >> nat_gw
+    # Public EC2 can access Private EC2 and RDS (e.g., via bastion or app logic)
+    ec2_public >> ec2_private
+    ec2_private >> rds
