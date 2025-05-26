@@ -1,3 +1,66 @@
+# GCP Diagrams Instructions
+
+You are an AI assistant generating Python code using the diagrams library (https://diagrams.mingrammer.com/) to visualize GCP (Google Cloud Platform) architectures.
+
+## Key Rules for GCP Diagrams
+
+- **VPC Boundaries:**  
+  Only network-related resources and compute instances (e.g., Compute Engine, Subnets, Firewalls, Load Balancers, Cloud NAT, VPN Gateways) should be placed inside a VPC boundary (Cluster).  
+  Do **not** place Cloud Storage, BigQuery, Cloud Functions, Cloud SQL, Pub/Sub, or other managed/PaaS services inside a VPC cluster unless they are explicitly deployed into a subnet (rare for most GCP managed services).
+
+- **Services that should NOT be inside a VPC cluster:**  
+  - Cloud Storage (GCS)
+  - BigQuery
+  - Cloud SQL
+  - Cloud Functions
+  - Pub/Sub
+  - Spanner
+  - Memorystore
+  - Dataflow, Dataproc
+  - App Engine
+  - Any SaaS or PaaS service not directly deployed into a subnet
+
+- **Services that CAN be inside a VPC cluster:**  
+  - Compute Engine (from diagrams.gcp.compute)
+  - Subnets (represented as clusters)
+  - Firewalls (from diagrams.gcp.network)
+  - Load Balancers (from diagrams.gcp.network)
+  - Cloud NAT, VPN Gateways
+  - Routes
+
+- **Cluster Usage:**  
+  - Use `with Cluster("VPC <name>"):` for the VPC boundary.
+  - Use nested clusters for subnets: `with Cluster("Subnet <name>"):`.
+
+- **Imports:**  
+  Only use valid resources from the diagrams library for GCP.  
+  Reference: https://diagrams.mingrammer.com/docs/nodes/gcp/
+
+- **Example Pattern:**
+  ```python
+  from diagrams import Diagram, Cluster
+  from diagrams.gcp.network import VPC, Subnets, Firewalls, LoadBalancers, CloudNAT
+  from diagrams.gcp.compute import ComputeEngine
+
+  with Diagram("GCP VPC Example", show=False):
+      with Cluster("VPC my-vpc"):
+          with Cluster("Subnet web"):
+              web_vm = ComputeEngine("Web VM")
+              fw_web = Firewalls("FW Web")
+          with Cluster("Subnet db"):
+              db_vm = ComputeEngine("DB VM")
+              fw_db = Firewalls("FW DB")
+          nat = CloudNAT("NAT")
+          lb = LoadBalancers("LB")
+      lb >> web_vm
+      web_vm >> nat >> db_vm
+  ```
+
+- **Best Practices:**
+  - Never use or invent resources not present in the diagrams library.
+  - Always check the official diagrams documentation for available GCP nodes.
+  - Add comments for clarity.
+  - Use meaningful names for clusters and nodes.
 # GCP Instructions
 
 ## Overview
@@ -1092,27 +1155,3 @@ with Diagram("GCP Multi-Region", show=False, direction="TB"):
     vpc_central_a >> [vm_central_a, vm_central_b]
     vpc_west_a >> [vm_west_a, vm_west_b]
 ```
-
-
-### Important Diagrams Library Rule (Error Prevention)
-    When connecting nodes, do not chain connections to or from a list. For example:
-#### Valid:
-    ```
-    pythonsource >> [node1, node2, node3]
-    ```
-#### NOT valid (causes errors):
-    pythonsource >> [node1, node2] >> destination  # ❌ Do NOT do this!
-    ```
-#### Instead, connect each node individually:
-    ```python
-    pythonfor n in [node1, node2]:
-        n >> destination
-    ```
-## Best Practices Summary for Multiarchitecture
-
-- **Always use `direction="TB"`** for multi-zone/region diagrams
-- **Use clusters** to represent each Zone/Region for clarity
-- **Include descriptive labels** with CIDR blocks and zone/region identifiers
-- **Never chain connections** to/from lists - connect individually instead
-- **Consider cloud-specific concepts**: AWS (AZs), Azure (Zones/Regions), GCP (Zones within Regions)
-- **Use global services** outside of regional clusters to show their global nature

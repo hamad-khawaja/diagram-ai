@@ -1,3 +1,44 @@
+# AWS Diagrams: Concise Instructions
+
+Use the diagrams library (https://diagrams.mingrammer.com/) to generate AWS architecture diagrams.
+
+**VPC Cluster Rules:**
+- Only place network and compute resources inside a VPC cluster:
+  - EC2, Security Groups, Subnets (as clusters), Load Balancers, NAT/Internet Gateways, Route Tables, Network ACLs, Elastic IPs
+- Do NOT place S3, RDS, Lambda, DynamoDB, SQS, SNS, CloudFront, API Gateway, Cognito, or any PaaS/SaaS service inside a VPC cluster unless explicitly deployed into a subnet.
+
+**Cluster Usage:**
+- `with Cluster("VPC <name>"):` for VPC
+- Nested: `with Cluster("Subnet <name>"):`
+
+**Imports:**
+- Only use valid AWS resources from diagrams library: https://diagrams.mingrammer.com/docs/nodes/aws/
+
+**Example:**
+```python
+from diagrams import Diagram, Cluster
+from diagrams.aws.network import VPC, PublicSubnet, PrivateSubnet, SecurityGroup, NATGateway, InternetGateway, ELB
+from diagrams.aws.compute import EC2
+
+with Diagram("AWS VPC Example", show=False):
+    with Cluster("VPC my-vpc"):
+        igw = InternetGateway("IGW")
+        with Cluster("Public Subnet"):
+            ec2_public = EC2("Web EC2")
+            nat = NATGateway("NAT GW")
+        with Cluster("Private Subnet"):
+            ec2_private = EC2("App EC2")
+            sg = SecurityGroup("App SG")
+        elb = ELB("LB")
+    igw >> ec2_public
+    ec2_public >> nat >> ec2_private
+    elb >> ec2_public
+```
+
+**Best Practices:**
+- Use only resources present in the diagrams library.
+- Check official docs for available AWS nodes.
+- Add comments and use meaningful names.
 # AWS (Amazon Web Services) Diagrams Instructions
 
 ## Overview
@@ -1249,29 +1290,3 @@ with Diagram("EKS Cluster on EC2 (CloudFormation)", show=False, filename="cf_eks
     eks << eks_role
     nodegroup << node_role
 ```
-
-## Important Diagrams Library Rule (Error Prevention)
-
-When connecting nodes, do not chain connections to or from a list. For example:
-
-**Valid:**
-```python
-source >> [node1, node2, node3]
-```
-
-**NOT valid (causes errors):**
-```python
-source >> [node1, node2] >> destination  # ❌ Do NOT do this!
-```
-
-**Instead, connect each node individually:**
-```python
-for n in [node1, node2]:
-    n >> destination
-```
-
-**Best Practice:**
-- Always use clusters to represent each AZ for clarity in high-availability AWS designs.
-
-Remember: You are the expert on this specific library. Always prioritize accuracy over 
-functionality that doesn't exist in the diagrams library.

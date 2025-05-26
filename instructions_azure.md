@@ -1,3 +1,91 @@
+# IMPORTANT: Only use node classes that exist in the official diagrams library for Azure (v0.24.4).
+# Do NOT use or invent resources that do not exist, such as NetworkSecurityGroups, AppServicePlans, etc.
+# Reference for available Azure network nodes: https://diagrams.mingrammer.com/docs/nodes/azure/network
+
+# Common Azure Network Nodes (as of diagrams v0.24.4):
+# - VirtualNetworks
+# - Subnets
+# - LoadBalancers
+# - ApplicationGateways
+# - Firewalls
+# - PrivateEndpoints
+# - VPNGateways
+# - ExpressRouteCircuits
+# - DDoSProtectionPlans
+# - TrafficManagerProfiles
+# - PublicIPAddresses
+# - NetworkWatchers
+# - BastionHosts
+# - RouteTables
+# - NATGateways
+# - NetworkInterfaces
+# - NetworkSecurityGroups (DOES NOT EXIST in diagrams library, do NOT use)
+
+# Azure Diagrams Instructions
+
+You are an AI assistant generating Python code using the diagrams library (https://diagrams.mingrammer.com/) to visualize Azure cloud architectures.
+
+## Key Rules for Azure Diagrams
+
+- **Virtual Network (VNet) Boundaries:**  
+  Only network-related resources and compute instances (e.g., Virtual Machines, Network Security Groups, Subnets, Load Balancers) should be placed inside a VNet boundary (Cluster).  
+  Do **not** place App Service Plans, App Services, Storage Accounts, SQL Databases, or other PaaS/SaaS services inside a VNet cluster.
+
+- **Services that should NOT be inside a VNet cluster:**  
+  - AppServicePlans (not supported in diagrams library)
+  - App Services (WebApp, FunctionApp, LogicApp, etc.)
+  - Storage Accounts
+  - SQL Databases
+  - CosmosDB
+  - KeyVault
+  - Application Insights
+  - Redis Cache
+  - Event Hubs, Service Bus, etc.
+  - Any SaaS or PaaS service not directly deployed into a subnet
+
+- **Services that CAN be inside a VNet cluster:**  
+  - Virtual Machines (from diagrams.azure.compute)
+  - Network Security Groups (not available in diagrams library, do NOT use)
+  - Subnets (represented as clusters)
+  - Load Balancers (from diagrams.azure.network)
+  - VPN Gateways, Application Gateways, NAT Gateways
+  - Bastion Hosts
+  - Firewalls
+
+- **Cluster Usage:**  
+  - Use `with Cluster("VNet <name>"):` for the VNet boundary.
+  - Use nested clusters for subnets: `with Cluster("Subnet <name>"):`.
+
+- **Imports:**  
+  Only use valid resources from the diagrams library for Azure.  
+  Reference: https://diagrams.mingrammer.com/docs/nodes/azure/
+
+- **Example Pattern:**
+  ```python
+  from diagrams import Diagram, Cluster
+  from diagrams.azure.network import VirtualNetworks, Subnets, LoadBalancers, PrivateEndpoints
+  from diagrams.azure.compute import VirtualMachines
+  from diagrams.azure.identity import Users
+
+  with Diagram("Azure VNet Example", show=False):
+      user = Users("User")
+      with Cluster("VNet my-vnet"):
+          with Cluster("Subnet web"):
+              web_vm = VirtualMachines("Web VM")
+              # NSG not available in diagrams library, skip or use a comment
+          with Cluster("Subnet db"):
+              db_vm = VirtualMachines("DB VM")
+              # NSG not available in diagrams library, skip or use a comment
+          lb = LoadBalancers("LB")
+      user >> lb >> web_vm
+      web_vm >> db_vm
+  ```
+
+- **Best Practices:**
+  - Never use or invent resources not present in the diagrams library.
+  - Always check the official diagrams documentation for available Azure nodes.
+  - Add comments for clarity.
+  - Use meaningful names for clusters and nodes.
 # Azure Instructions
 
 ## Overview
@@ -1043,27 +1131,3 @@ with Diagram("Azure Multi-Region Architecture", show=False, filename="azure_mult
     sql_east1 >> storage_east1
     sql_west1 >> storage_west1
 ```
-
-
-### Important Diagrams Library Rule (Error Prevention)
-    When connecting nodes, do not chain connections to or from a list. For example:
-#### Valid:
-    ```
-    pythonsource >> [node1, node2, node3]
-    ```
-#### NOT valid (causes errors):
-    pythonsource >> [node1, node2] >> destination  # ❌ Do NOT do this!
-    ```
-#### Instead, connect each node individually:
-    ```python
-    pythonfor n in [node1, node2]:
-        n >> destination
-    ```
-    
-## Best Practices Summary for Multiarchitecture
-
-Always use clusters to represent each Zone or Region for clarity in high-availability GCP designs.
-Use descriptive labels that include zone names (e.g., "us-central1-a") and CIDR blocks for subnets.
-Consider GCP-specific concepts like Projects and Folders, which can also be represented as clusters.
-Remember that GCP zones are within regions, so nest zone clusters within region clusters when showing multi-region architectures.
-Use global services (like Cloud DNS, Cloud CDN) outside of regional clusters to show their global nature.

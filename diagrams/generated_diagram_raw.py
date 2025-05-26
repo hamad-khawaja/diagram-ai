@@ -1,30 +1,25 @@
 from diagrams import Diagram, Cluster
-from diagrams.aws.network import VPC, PublicSubnet, PrivateSubnet, InternetGateway
-from diagrams.aws.compute import EC2
-from diagrams.aws.database import RDS
+from diagrams.azure.network import VirtualNetworks, Subnets, PrivateEndpoint
+from diagrams.azure.database import SQLDatabases
+from diagrams.azure.web import AppServices
 
-with Diagram("AWS VPC with Public/Private Subnets", show=False, direction="TB"):
-    vpc = VPC("VPC")
-    igw = InternetGateway("Internet Gateway")
-    vpc >> igw
+with Diagram("Azure VNet with Integration and Database Subnets", show=False):
+    # App Service (PaaS) - should NOT be inside VNet cluster
+    app_service = AppServices("App Service")
 
-    with Cluster("Public Subnet"):
-        pub_subnet = PublicSubnet("Public Subnet")
-        ec2_public = EC2("EC2 Public")
+    with Cluster("VNet my-vnet"):
+        # Integration Subnet for App Service integration
+        with Cluster("Subnet integration-subnet"):
+            integration_subnet = Subnets("Integration Subnet")
+            # App Service connects to this subnet via VNet Integration
 
-    with Cluster("Private Subnet"):
-        priv_subnet = PrivateSubnet("Private Subnet")
-        ec2_private = EC2("EC2 Private")
-        rds = RDS("RDS DB")
+        # Database Subnet with SQL DB and Private Endpoint
+        with Cluster("Subnet db-subnet"):
+            db_subnet = Subnets("DB Subnet")
+            sql_db = SQLDatabases("SQL Database")
+            pe_sql = PrivateEndpoint("Private Endpoint\n(SQL DB)")
+            sql_db >> pe_sql
 
     # Connections
-    vpc >> pub_subnet
-    vpc >> priv_subnet
-
-    pub_subnet >> ec2_public
-    priv_subnet >> ec2_private
-    priv_subnet >> rds
-
-    # Public EC2 can access Private EC2 and RDS (e.g., via bastion or app logic)
-    ec2_public >> ec2_private
-    ec2_private >> rds
+    app_service >> integration_subnet  # VNet Integration
+    pe_sql >> db_subnet  # Private Endpoint is in DB Subnet
