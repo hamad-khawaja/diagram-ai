@@ -130,12 +130,52 @@ def generate_diagram():
             ['python3', 'generated_diagram.py'],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=60
         )
         logger.info(f"Diagram code executed. Return code: {proc.returncode}")
         if proc.returncode != 0:
             logger.error(f"Diagram code execution failed. Stderr: {proc.stderr}\nStdout: {proc.stdout}")
             os.chdir(cwd)
+            # Try to return the diagram if it was generated, even if there was an error
+            import re as _re
+            image_candidates = []
+            try:
+                with open(os.path.join(UPLOAD_FOLDER, 'generated_diagram.py'), 'r') as f:
+                    code_content = f.read()
+                m = _re.search(r'filename\s*=\s*["\']([^"\']+)["\']', code_content)
+                if m:
+                    base = m.group(1)
+                    if not base.endswith('.png'):
+                        base_png = base + '.png'
+                    else:
+                        base_png = base
+                    image_candidates.append(os.path.join(UPLOAD_FOLDER, base_png))
+                    image_candidates.append(os.path.join(UPLOAD_FOLDER, os.path.basename(base_png)))
+                else:
+                    m2 = _re.search(r'with Diagram\((?:["\'])(.*?)(?:["\'])', code_content)
+                    if m2:
+                        title = m2.group(1)
+                        title_clean = title.lower().replace(' ', '_').replace('/', '_')
+                        image_candidates.append(os.path.join(UPLOAD_FOLDER, title_clean + '.png'))
+            except Exception as e:
+                logger.warning(f"Could not infer image filename from code: {e}")
+
+            for candidate in image_candidates:
+                if os.path.exists(candidate):
+                    fname = os.path.relpath(candidate, UPLOAD_FOLDER)
+                    image_url = f'/diagrams/{fname.replace(os.sep, "/")}'
+                    logger.info(f"Diagram generated (with error): {candidate}")
+                    return jsonify({'diagram_path': candidate, 'image_url': image_url, 'error': 'Diagram code execution failed', 'stderr': proc.stderr, 'stdout': proc.stdout}), 206
+
+            for root, dirs, files in os.walk(UPLOAD_FOLDER):
+                for fname in files:
+                    if fname.endswith('.png'):
+                        diagram_path = os.path.join(root, fname)
+                        rel_path = os.path.relpath(diagram_path, UPLOAD_FOLDER)
+                        image_url = f'/diagrams/{rel_path.replace(os.sep, "/")}'
+                        logger.info(f"Diagram generated (with error): {diagram_path}")
+                        return jsonify({'diagram_path': diagram_path, 'image_url': image_url, 'error': 'Diagram code execution failed', 'stderr': proc.stderr, 'stdout': proc.stdout}), 206
+
             return jsonify({'error': 'Diagram code execution failed', 'stderr': proc.stderr, 'stdout': proc.stdout}), 500
     except Exception as e:
         logger.error(f"Diagram execution error: {e}")
