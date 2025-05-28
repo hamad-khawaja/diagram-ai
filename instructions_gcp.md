@@ -12,26 +12,12 @@ Use the diagrams library (https://diagrams.mingrammer.com/) to generate GCP arch
 - Nested: `with Cluster("Subnet <name>"):`
 
 **Imports:**
-- Only use valid GCP resources from diagrams library: https://diagrams.mingrammer.com/docs/nodes/gcp/
+- Refer to the official diagrams library documentation for GCP resources: https://diagrams.mingrammer.com/docs/nodes/gcp/
 
 **Example:**
 ```python
 from diagrams import Diagram, Cluster
-from diagrams.gcp.network import VPC, Subnets, Firewalls, LoadBalancers, CloudNAT
-from diagrams.gcp.compute import ComputeEngine
-
-with Diagram("GCP VPC Example", show=False):
-    with Cluster("VPC my-vpc"):
-        with Cluster("Subnet web"):
-            web_vm = ComputeEngine("Web VM")
-            fw_web = Firewalls("FW Web")
-        with Cluster("Subnet db"):
-            db_vm = ComputeEngine("DB VM")
-            fw_db = Firewalls("FW DB")
-        nat = CloudNAT("NAT")
-        lb = LoadBalancers("LB")
-    lb >> web_vm
-    web_vm >> nat >> db_vm
+# Refer to the official documentation for valid GCP resources
 ```
 
 **Best Practices:**
@@ -1115,3 +1101,7 @@ with Diagram("GCP Multi-Region", show=False, direction="TB"):
     vpc_central_a >> [vm_central_a, vm_central_b]
     vpc_west_a >> [vm_west_a, vm_west_b]
 ```
+
+### Correct Import Guidelines
+- **GCP Resources**: Always verify resource availability in the `diagrams.gcp` module before importing.
+- **General Rule**: Use the official diagrams library documentation to confirm valid imports.

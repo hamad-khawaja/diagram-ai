@@ -4,7 +4,7 @@ Use the diagrams library (https://diagrams.mingrammer.com/) to generate AWS arch
 
 **VPC Cluster Rules:**
 - Only place network and compute resources inside a VPC cluster:
-  - EC2, Security Groups, Subnets (as clusters), Load Balancers, NAT/Internet Gateways, Route Tables, Network ACLs, Elastic IPs
+  - EC2, Subnets (as clusters), Load Balancers, NAT/Internet Gateways, Route Tables, Network ACLs, Elastic IPs
 - Do NOT place S3, RDS, Lambda, DynamoDB, SQS, SNS, CloudFront, API Gateway, Cognito, or any PaaS/SaaS service inside a VPC cluster unless explicitly deployed into a subnet.
 
 **Cluster Usage:**
@@ -12,27 +12,14 @@ Use the diagrams library (https://diagrams.mingrammer.com/) to generate AWS arch
 - Nested: `with Cluster("Subnet <name>"):`
 
 **Imports:**
-- Only use valid AWS resources from diagrams library: https://diagrams.mingrammer.com/docs/nodes/aws/
+- Refer to the official diagrams library documentation for AWS resources: https://diagrams.mingrammer.com/docs/nodes/aws/
+- Use `EC2ElasticIpAddress` from `diagrams.aws.compute` instead of `diagrams.aws.network` to avoid ImportError.
+- Skip using `SecurityGroups` as they are not fully supported in the diagrams library.
 
 **Example:**
 ```python
 from diagrams import Diagram, Cluster
-from diagrams.aws.network import VPC, PublicSubnet, PrivateSubnet, SecurityGroup, NATGateway, InternetGateway, ELB
-from diagrams.aws.compute import EC2
-
-with Diagram("AWS VPC Example", show=False):
-    with Cluster("VPC my-vpc"):
-        igw = InternetGateway("IGW")
-        with Cluster("Public Subnet"):
-            ec2_public = EC2("Web EC2")
-            nat = NATGateway("NAT GW")
-        with Cluster("Private Subnet"):
-            ec2_private = EC2("App EC2")
-            sg = SecurityGroup("App SG")
-        elb = ELB("LB")
-    igw >> ec2_public
-    ec2_public >> nat >> ec2_private
-    elb >> ec2_public
+# Refer to the official documentation for valid AWS resources
 ```
 
 **Best Practices:**
