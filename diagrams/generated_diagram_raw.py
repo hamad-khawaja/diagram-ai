@@ -4,7 +4,7 @@ from diagrams.azure.compute import VMScaleSet
 from diagrams.azure.database import SQLDatabases
 from diagrams.azure.storage import BlobStorage
 
-with Diagram("Azure Multi-Region Application Architecture", show=False, direction="TB"):
+with Diagram("Azure Multi-Region Application Architecture", show=False, direction="TB", outformat=["png", "svg", "pdf", "dot", "jpg"]):
     # Global DNS-based routing
     traffic_manager = TrafficManagerProfiles("Azure Traffic Manager\n(DNS-based Routing)")
 

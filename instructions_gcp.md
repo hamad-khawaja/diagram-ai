@@ -1,3 +1,7 @@
+# OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG, PDF, DOT, JPG) by setting:
+#   outformat=["png", "svg", "pdf", "dot", "jpg"]
+# in the Diagram constructor. Example:
+#   with Diagram("...", outformat=["png", "svg", "pdf", "dot", "jpg"]):
 # GCP Diagrams: Concise Instructions
 
 Use the diagrams library (https://diagrams.mingrammer.com/) to generate GCP architecture diagrams.
