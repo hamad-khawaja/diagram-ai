@@ -1,11 +1,9 @@
-
-
-
 import os
 import logging
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
+import uuid
 
 
 app = Flask(__name__)
@@ -124,14 +122,7 @@ def generate_diagram():
         logger.error(f"Failed to save sanitized code: {e}")
         return jsonify({'error': 'Failed to save sanitized code'}), 500
 
-    # --- Diagram Generation Error Handling (always subprocess, always secure) ---
-
-    # Resource limits temporarily disabled for debugging
-    # def set_limits():
-    #     resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
-    #     resource.setrlimit(resource.RLIMIT_AS, (256 * 1024 * 1024, 256 * 1024 * 1024))
-
-
+    # Diagram generation subprocess call
     cwd = os.getcwd()
     os.chdir(UPLOAD_FOLDER)
     try:
@@ -140,7 +131,6 @@ def generate_diagram():
             capture_output=True,
             text=True,
             timeout=30
-            # preexec_fn=set_limits  # Disabled for debugging
         )
         logger.info(f"Diagram code executed. Return code: {proc.returncode}")
         if proc.returncode != 0:
@@ -152,6 +142,7 @@ def generate_diagram():
         os.chdir(cwd)
         return jsonify({'error': f'Diagram execution error: {str(e)}'}), 500
     os.chdir(cwd)
+
     # Try to infer the output image filename from the generated code
     import re as _re
     image_candidates = []
@@ -199,6 +190,7 @@ def generate_diagram():
                 image_url = f'/diagrams/{rel_path.replace(os.sep, "/")}'
                 logger.info(f"Diagram generated: {diagram_path}")
                 return jsonify({'diagram_path': diagram_path, 'image_url': image_url})
+
     logger.error("Diagram image not found after code execution.")
     return jsonify({'error': 'Diagram image not found'}), 500
 
