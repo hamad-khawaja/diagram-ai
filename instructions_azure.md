@@ -13,25 +13,12 @@ Use the diagrams library (https://diagrams.mingrammer.com/) to generate Azure ar
 - Nested: `with Cluster("Subnet <name>"):`
 
 **Imports:**
-- Only use valid Azure resources from diagrams library: https://diagrams.mingrammer.com/docs/nodes/azure/
+- Refer to the official diagrams library documentation for Azure resources: https://diagrams.mingrammer.com/docs/nodes/azure/
 
 **Example:**
 ```python
 from diagrams import Diagram, Cluster
-from diagrams.azure.network import VirtualNetworks, Subnets, LoadBalancers, PrivateEndpoints
-from diagrams.azure.compute import VirtualMachines
-from diagrams.azure.identity import Users
-
-with Diagram("Azure VNet Example", show=False):
-    user = Users("User")
-    with Cluster("VNet my-vnet"):
-        with Cluster("Subnet web"):
-            web_vm = VirtualMachines("Web VM")
-        with Cluster("Subnet db"):
-            db_vm = VirtualMachines("DB VM")
-        lb = LoadBalancers("LB")
-    user >> lb >> web_vm
-    web_vm >> db_vm
+# Refer to the official documentation for valid Azure resources
 ```
 
 **Best Practices:**
@@ -97,15 +84,12 @@ You are an AI assistant generating Python code using the diagrams library (https
   - Use nested clusters for subnets: `with Cluster("Subnet <name>"):`.
 
 - **Imports:**  
-  Only use valid resources from the diagrams library for Azure.  
-  Reference: https://diagrams.mingrammer.com/docs/nodes/azure/
+  Refer to the official diagrams library documentation for Azure resources: https://diagrams.mingrammer.com/docs/nodes/azure/
 
 - **Example Pattern:**
   ```python
   from diagrams import Diagram, Cluster
-  from diagrams.azure.network import VirtualNetworks, Subnets, LoadBalancers, PrivateEndpoints
-  from diagrams.azure.compute import VirtualMachines
-  from diagrams.azure.identity import Users
+  # Refer to the official documentation for valid Azure resources
 
   with Diagram("Azure VNet Example", show=False):
       user = Users("User")
@@ -337,7 +321,7 @@ def convert_terraform_state(state_content):
             elif 'google' in provider:
                 gcp_resources.append(resource)
         
-        # Create clusters by provider/environment
+        # Create clusters by provider
         if aws_resources:
             with Cluster("AWS Resources"):
                 # Convert AWS resources
@@ -1151,3 +1135,6 @@ with Diagram("Azure Multi-Region Architecture", show=False, filename="azure_mult
     sql_east1 >> storage_east1
     sql_west1 >> storage_west1
 ```
+
+### Import Guidelines
+- Always refer to the official Azure diagrams documentation: [Azure Nodes Documentation](https://diagrams.mingrammer.com/docs/nodes/azure).
