@@ -18,7 +18,8 @@ resource "azurerm_key_vault" "ai_hub" {
   resource_group_name             = azurerm_resource_group.main.name
   tenant_id                       = data.azurerm_client_config.current.tenant_id
   sku_name                        = "standard"
-  purge_protection_enabled        = false
+  purge_protection_enabled        = true
+  public_network_access_enabled   = false
   enabled_for_deployment          = true
   enabled_for_disk_encryption     = true
   enabled_for_template_deployment = true
@@ -58,21 +59,21 @@ resource "azurerm_machine_learning_workspace" "ai_project" {
   depends_on = [azurerm_machine_learning_workspace.ai_hub]
 }
 
-# Role assignments for AI Project to access AI Services
-resource "azurerm_role_assignment" "cognitive_services_contributor" {
-  scope                = azurerm_cognitive_account.main.id
-  role_definition_name = "Cognitive Services Contributor"
-  principal_id         = azurerm_machine_learning_workspace.ai_project.identity[0].principal_id
-}
+# # Role assignments for AI Project to access AI Services
+# resource "azurerm_role_assignment" "cognitive_services_contributor" {
+#   scope                = azurerm_cognitive_account.main.id
+#   role_definition_name = "Cognitive Services Contributor"
+#   principal_id         = azurerm_machine_learning_workspace.ai_project.identity[0].principal_id
+# }
 
-resource "azurerm_role_assignment" "cognitive_services_openai_user" {
-  scope                = azurerm_cognitive_account.main.id
-  role_definition_name = "Cognitive Services OpenAI User"
-  principal_id         = azurerm_machine_learning_workspace.ai_project.identity[0].principal_id
-}
+# resource "azurerm_role_assignment" "cognitive_services_openai_user" {
+#   scope                = azurerm_cognitive_account.main.id
+#   role_definition_name = "Cognitive Services OpenAI User"
+#   principal_id         = azurerm_machine_learning_workspace.ai_project.identity[0].principal_id
+# }
 
-resource "azurerm_role_assignment" "cognitive_services_user" {
-  scope                = azurerm_cognitive_account.main.id
-  role_definition_name = "Cognitive Services User"
-  principal_id         = azurerm_machine_learning_workspace.ai_project.identity[0].principal_id
-}
+# resource "azurerm_role_assignment" "cognitive_services_user" {
+#   scope                = azurerm_cognitive_account.main.id
+#   role_definition_name = "Cognitive Services User"
+#   principal_id         = azurerm_machine_learning_workspace.ai_project.identity[0].principal_id
+# }
