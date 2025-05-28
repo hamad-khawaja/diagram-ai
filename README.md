@@ -58,6 +58,39 @@ See `API_USAGE.md` for endpoint documentation and example requests.
 
 ---
 
+## Features
+- **Diagram Generation**: Generate architecture diagrams from textual descriptions using OpenAI GPT-4.1 and the diagrams library.
+- **Code Sanitization and Whitelisting**: Ensures generated code is safe and adheres to predefined rules.
+- **Error Handling**: Logs errors and returns detailed JSON responses for debugging.
+- **Static File Serving**: Serves generated diagrams via the `/diagrams/<filename>` endpoint.
+- **Cloud Provider-Specific Instructions**: Supports AWS, Azure, and GCP-specific diagram generation using predefined instruction files.
+
+## API Endpoints
+### `/generate`
+- **Method**: POST
+- **Description**: Generates a diagram based on the provided description and cloud provider.
+- **Request Body**:
+  ```json
+  {
+    "description": "Your diagram description",
+    "provider": "aws|azure|gcp"
+  }
+  ```
+- **Response**:
+  - Success: Returns the path and URL of the generated diagram.
+  - Error: Returns an error message with details.
+
+### `/diagrams/<filename>`
+- **Method**: GET
+- **Description**: Serves the generated diagram file.
+
+## Logging
+- Logs are saved to `app.log` for debugging and monitoring purposes.
+
+## Additional Notes
+- Ensure the `diagrams/` folder is writable for saving generated diagrams.
+- The application uses `instructions_aws.md`, `instructions_azure.md`, and `instructions_gcp.md` for cloud-specific diagram generation.
+
 ## Troubleshooting
 - If you encounter issues with Docker builds, try rebuilding with `--no-cache`:
   ```
