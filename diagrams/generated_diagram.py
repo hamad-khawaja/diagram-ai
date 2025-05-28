@@ -1,25 +1,21 @@
-from diagrams import Diagram, Cluster
-from diagrams.azure.network import VirtualNetworks, Subnets, PrivateEndpoint
-from diagrams.azure.database import SQLDatabases
-from diagrams.azure.web import AppServices
+from diagrams import Diagram, Cluster, Edge
+from diagrams.aws.compute import Lambda
+from diagrams.aws.security import IAMRole
+from diagrams.aws.storage import S3
+from diagrams.aws.database import Dynamodb
+from diagrams.aws.analytics import Kinesis
 
-with Diagram("Azure VNet with Integration and Database Subnets", show=False):
-    # App Service (PaaS) - should NOT be inside VNet cluster
-    app_service = AppServices("App Service")
+env_name = "dev"  # Replace with your EnvName parameter if desired
 
-    with Cluster("VNet my-vnet"):
-        # Integration Subnet for App Service integration
-        with Cluster("Subnet integration-subnet"):
-            integration_subnet = Subnets("Integration Subnet")
-            # App Service connects to this subnet via VNet Integration
+with Diagram(f"AWS Lambda Sample ({env_name})", show=False, direction="TB"):
+    with Cluster(f"Lambda Environment: {env_name}"):
+        lambda_role = IAMRole("LambdaRole")
+        lambda_func = Lambda("LambdaFunction")
+        lambda_func << Edge(label="assume role") << lambda_role
 
-        # Database Subnet with SQL DB and Private Endpoint
-        with Cluster("Subnet db-subnet"):
-            db_subnet = Subnets("DB Subnet")
-            sql_db = SQLDatabases("SQL Database")
-            pe_sql = PrivateEndpoint("Private Endpoint\n(SQL DB)")
-            sql_db >> pe_sql
+        # External AWS services Lambda can access
+        s3 = S3("S3 (Full Access)")
+        ddb = Dynamodb("DynamoDB (Full Access)")
+        kinesis = Kinesis("Kinesis (Full Access)")
 
-    # Connections
-    app_service >> integration_subnet  # VNet Integration
-    pe_sql >> db_subnet  # Private Endpoint is in DB Subnet
+        lambda_func >> [s3, ddb, kinesis]
