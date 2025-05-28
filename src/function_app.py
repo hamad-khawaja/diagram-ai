@@ -75,10 +75,10 @@ class ToolProperty:
 # generate_diagram FUNCTIONALITY
 # =============================================================================
 
-# HTTP endpoint for saving snippets
+# HTTP endpoint for generating diagrams
 # This is accessible via standard HTTP POST requests
 @app.route(route="generate", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
-@app.embeddings_input(arg_name="embeddings", input="{code}", input_type="rawText", embeddings_model="%EMBEDDING_MODEL_DEPLOYMENT_NAME%")
+#  TODO: @app.embeddings_input(arg_name="embeddings", input="{code}", input_type="rawText", embeddings_model="%EMBEDDING_MODEL_DEPLOYMENT_NAME%")
 async def generate_diagram(req: func.HttpRequest, embeddings: str) -> func.HttpResponse:
     """
     HTTP trigger function to save a code snippet with its vector embedding.
@@ -89,7 +89,7 @@ async def generate_diagram(req: func.HttpRequest, embeddings: str) -> func.HttpR
     - Generates a vector embedding for that code
     - Provides the embedding to the function via the 'embeddings' parameter
     """
-
+    logger.info("Received API request to generate diagram")
     # TODO - MOVE APP CODE HERE
 
 # MCP tool for saving snippets
@@ -110,10 +110,7 @@ async def mcp_save_snippet(context: str, embeddings: str) -> str:
     - Receives parameters from an AI assistant like GitHub Copilot
     - Uses the same embedding generation as the HTTP endpoint
     - Shares the same storage logic with the HTTP endpoint
-    
-    The difference from the HTTP endpoint:
-    - Receives parameters via the 'context' JSON string instead of HTTP body
-    - Returns results as a JSON string instead of an HTTP response
     """
+    logger.info("Received MCP request to generate diagram")
     
     #TODO - call the generate_diagram agent and return URL of the diagram
