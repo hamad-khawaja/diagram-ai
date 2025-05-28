@@ -1,4 +1,4 @@
-# Mingrammer Diagram Generator API
+# AI Diagram Generator API
 
 This project provides a robust, secure, and user-friendly Python Flask API for generating diagrams from user descriptions using OpenAI GPT-4.1 and the diagrams library. It is fully containerized with Docker.
 
