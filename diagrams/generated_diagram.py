@@ -1,63 +1,32 @@
 from diagrams import Diagram, Cluster, Edge
-from diagrams.azure.network import ApplicationGateway, TrafficManagerProfiles, VirtualNetworks
-from diagrams.azure.compute import VMScaleSet
-from diagrams.azure.database import SQLDatabases
-from diagrams.azure.storage import BlobStorage
+from diagrams.aws.network import APIGateway
+from diagrams.aws.compute import Lambda
+from diagrams.aws.database import Dynamodb
+from diagrams.aws.storage import S3
+from diagrams.aws.management import Cloudwatch
+from diagrams.aws.security import IAMRole
 
-with Diagram("Azure Multi-Region Application Architecture", show=False, direction="TB"):
-    # Global DNS-based routing
-    traffic_manager = TrafficManagerProfiles("Azure Traffic Manager\n(DNS-based Routing)")
+with Diagram("AWS Serverless Web Backend", show=False, direction="LR", outformat=["png", "svg", "pdf", "dot", "jpg"]):
+    # API Gateway as entrypoint
+    api = APIGateway("API Gateway")
 
-    # East US Region (Primary)
-    with Cluster("East US (Primary Region)"):
-        vnet_east = VirtualNetworks("VNet East US")
-        appgw_east = ApplicationGateway("App Gateway")
-        with Cluster("App Tier"):
-            vmss_east = VMScaleSet("VM Scale Set")
-        sql_east = SQLDatabases("SQL DB\nPrimary\nZone-Redundant")
-        blob_east = BlobStorage("Blob Storage\nRA-GRS")
-        # Regional flow
-        vnet_east >> appgw_east >> vmss_east
-        vmss_east >> sql_east
-        vmss_east >> blob_east
+    # Lambda function (backend logic)
+    with Cluster("Serverless Compute"):
+        lambda_func = Lambda("Lambda Function")
+        lambda_role = IAMRole("Lambda IAM Role")
+        lambda_func << Edge(style="dashed", label="assume role") << lambda_role
 
-    # West Europe Region (Secondary)
-    with Cluster("West Europe (Secondary Region)"):
-        vnet_eu = VirtualNetworks("VNet West Europe")
-        appgw_eu = ApplicationGateway("App Gateway")
-        with Cluster("App Tier"):
-            vmss_eu = VMScaleSet("VM Scale Set")
-        sql_eu = SQLDatabases("SQL DB\nSecondary\nZone-Redundant")
-        blob_eu = BlobStorage("Blob Storage\nRA-GRS")
-        vnet_eu >> appgw_eu >> vmss_eu
-        vmss_eu >> sql_eu
-        vmss_eu >> blob_eu
+    # DynamoDB for data storage
+    db = Dynamodb("DynamoDB Table")
 
-    # Southeast Asia Region (Secondary)
-    with Cluster("Southeast Asia (Secondary Region)"):
-        vnet_sea = VirtualNetworks("VNet SE Asia")
-        appgw_sea = ApplicationGateway("App Gateway")
-        with Cluster("App Tier"):
-            vmss_sea = VMScaleSet("VM Scale Set")
-        sql_sea = SQLDatabases("SQL DB\nSecondary\nZone-Redundant")
-        blob_sea = BlobStorage("Blob Storage\nRA-GRS")
-        vnet_sea >> appgw_sea >> vmss_sea
-        vmss_sea >> sql_sea
-        vmss_sea >> blob_sea
+    # S3 for static assets or file uploads
+    s3 = S3("S3 Bucket")
 
-    # Traffic Manager routes users to the closest region's App Gateway
-    traffic_manager >> [appgw_east, appgw_eu, appgw_sea]
+    # CloudWatch for logs/monitoring
+    cw = Cloudwatch("CloudWatch Logs")
 
-    # SQL Database geo-replication (primary to secondaries)
-    sql_east >> Edge(label="Active Geo-Replication", style="dashed", color="blue") >> sql_eu
-    sql_east >> Edge(label="Active Geo-Replication", style="dashed", color="blue") >> sql_sea
-
-    # Blob Storage cross-region replication (RA-GRS)
-    blob_east >> Edge(label="RA-GRS Replication", style="dotted", color="purple") >> blob_eu
-    blob_east >> Edge(label="RA-GRS Replication", style="dotted", color="purple") >> blob_sea
-
-    # Failover: SQL secondary can become new primary (conceptual)
-    sql_eu >> Edge(label="Failover Promotion", style="dashed", color="red") >> sql_east
-    sql_sea >> Edge(label="Failover Promotion", style="dashed", color="red") >> sql_east
-
-    # Users connect to Traffic Manager (not shown: you can add a generic "User" node if desired)
+    # Data flow
+    api >> Edge(label="Invoke") >> lambda_func
+    lambda_func >> Edge(label="Read/Write") >> db
+    lambda_func >> Edge(label="Store/Retrieve") >> s3
+    lambda_func >> Edge(label="Logs") >> cw
