@@ -1,3 +1,7 @@
+# OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG, PDF, DOT, JPG) by setting:
+#   outformat=["png", "svg", "pdf", "dot", "jpg"]
+# in the Diagram constructor. Example:
+#   with Diagram("...", outformat=["png", "svg", "pdf", "dot", "jpg"]):
 # WARNING: Only use import statements and resource classes exactly as shown in the AWS import list below. Do NOT use any other import paths or class names. If you are unsure, copy-paste from the list.
 #
 # Common Mistakes:
