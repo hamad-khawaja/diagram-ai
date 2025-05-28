@@ -91,9 +91,9 @@ def generate_diagram():
         logger.error(f"OpenAI API error: {e}\n{tb}")
         return jsonify({'error': f'OpenAI API error: {str(e)}', 'traceback': tb}), 500
 
+
     # Save the generated code before whitelisting
     code_filename = os.path.join(UPLOAD_FOLDER, 'generated_diagram_raw.py')
-
     try:
         with open(code_filename, 'w') as f:
             f.write(code)
@@ -101,6 +101,30 @@ def generate_diagram():
     except Exception as e:
         logger.error(f"Failed to save raw code: {e}")
         return jsonify({'error': 'Failed to save raw code'}), 500
+
+    # --- Replace all imports with hard-coded template imports ---
+    import re as _re
+    # Remove all import statements from the generated code
+    code_no_imports = _re.sub(r'^(\s*from\s+diagrams\..*|\s*from\s+diagrams\s+import.*|\s*import\s+diagrams.*|\s*import\s+\w+.*)$', '', code, flags=_re.MULTILINE)
+    # Select the correct imports template based on provider
+    if provider == "aws":
+        imports_template_file = 'diagram_imports_aws.py'
+    elif provider == "azure":
+        imports_template_file = 'diagram_imports_azure.py'
+    elif provider == "gcp":
+        imports_template_file = 'diagram_imports_gcp.py'
+    else:
+        logger.error(f"Unknown provider for imports: {provider}")
+        return jsonify({'error': 'Unknown provider for imports'}), 500
+    # Read the hard-coded imports template
+    try:
+        with open(imports_template_file, 'r') as f:
+            imports_template = f.read()
+    except Exception as e:
+        logger.error(f"Failed to read {imports_template_file}: {e}")
+        return jsonify({'error': f'Failed to read {imports_template_file}'}), 500
+    # Combine imports and the rest of the code
+    code = imports_template + '\n' + code_no_imports
 
     # --- Resource Whitelisting ---
 
