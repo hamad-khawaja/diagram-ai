@@ -20,6 +20,11 @@ data "archive_file" "function_app_zip" {
   output_path = "${path.module}/functionapp.zip"
 }
 
+resource "azurerm_role_assignment" "function_storage_blob_data_contributor" {
+  scope                = azurerm_storage_account.function.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_linux_function_app.main.identity[0].principal_id
+}
 
 resource "azurerm_linux_function_app" "main" {
   name                        = var.function_app_name
