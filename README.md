@@ -8,15 +8,18 @@ This project provides a robust, secure, and user-friendly Python Flask API for g
 
 ## Quick Start (Docker)
 
+
 ### 1. Clone the repository
+Clone this repository to your local machine:
 ```
-git clone <your-repo-url>
-cd mingrammer
+git clone https://github.com/hamadkhawaja/diagram-ai.git
+cd diagram-ai
 ```
 
 ### 2. Build the Docker image
+
 ```
-docker build -t mingrammer-diagram-api .
+docker build -t diagram-ai-api .
 ```
 
 ### 3. Run the Docker container
@@ -25,14 +28,18 @@ Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key:
 docker run -d \
   -e OPENAI_API_KEY=YOUR_OPENAI_API_KEY \
   -p 5000:5000 \
-  --name mingrammer-diagram-api \
-  mingrammer-diagram-api
+  --name diagram-ai-api \
+  diagram-ai-api
 ```
 
 - The API will be available at: http://localhost:5000
 
+
 ### 4. Test the API
 See `API_USAGE.md` for endpoint documentation and example requests.
+
+**Multi-format Output:**
+The API now returns URLs for all available diagram formats (PNG, SVG, PDF, DOT, JPG) in the response. You can access any format using the provided URLs.
 
 ---
 
