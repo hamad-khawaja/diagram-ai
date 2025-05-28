@@ -5,14 +5,16 @@
 # WARNING: Only use import statements and resource classes exactly as shown in the AWS import list below. Do NOT use any other import paths or class names. If you are unsure, copy-paste from the list.
 #
 # Common Mistakes:
+#   ❌ Dynamodb   (wrong)
+#   ✅ DynamoDB   (correct)
 #   ❌ from diagrams.aws.network import EC2ElasticIpAddress   (wrong)
 #   ✅ from diagrams.aws.compute import EC2ElasticIpAddress   (correct)
 #   ❌ from diagrams.aws.database import S3                  (wrong)
 #   ✅ from diagrams.aws.storage import S3                   (correct)
 #   ❌ from diagrams.aws.compute import RDS                  (wrong)
 #   ✅ from diagrams.aws.database import RDS                 (correct)
-#   ❌ from diagrams.aws.compute import DynamoDB             (wrong)
-#   ✅ from diagrams.aws.database import DynamoDB            (correct)
+#   ❌ from diagrams.aws.compute import Dynamodb             (wrong)
+#   ✅ from diagrams.aws.database import Dynamodb            (correct)
 #   ❌ from diagrams.aws.compute import LambdaFunction       (wrong)
 #   ✅ from diagrams.aws.compute import Lambda               (correct)
 #   ❌ from diagrams.aws.network import ELB                  (wrong)

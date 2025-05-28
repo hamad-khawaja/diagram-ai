@@ -213,23 +213,32 @@ def generate_diagram():
     except Exception as e:
         logger.warning(f"Could not infer image filename from code: {e}")
 
-    # Search for candidates
+    # Collect all output formats for the diagram
+    output_formats = ["png", "svg", "pdf", "dot", "jpg"]
+    base_names = set()
     for candidate in image_candidates:
         if os.path.exists(candidate):
-            fname = os.path.relpath(candidate, UPLOAD_FOLDER)
-            image_url = f'/diagrams/{fname.replace(os.sep, "/")}'
-            logger.info(f"Diagram generated: {candidate}")
-            return jsonify({'diagram_path': candidate, 'image_url': image_url})
+            base = os.path.splitext(os.path.basename(candidate))[0]
+            base_names.add(base)
 
-    # Fallback: search for any PNG in UPLOAD_FOLDER and subfolders
+    # Fallback: search for any output file in UPLOAD_FOLDER and subfolders
     for root, dirs, files in os.walk(UPLOAD_FOLDER):
         for fname in files:
-            if fname.endswith('.png'):
-                diagram_path = os.path.join(root, fname)
-                rel_path = os.path.relpath(diagram_path, UPLOAD_FOLDER)
-                image_url = f'/diagrams/{rel_path.replace(os.sep, "/")}'
-                logger.info(f"Diagram generated: {diagram_path}")
-                return jsonify({'diagram_path': diagram_path, 'image_url': image_url})
+            for ext in output_formats:
+                if fname.endswith('.' + ext):
+                    base = os.path.splitext(fname)[0]
+                    base_names.add(base)
+
+    if base_names:
+        urls = {}
+        for base in base_names:
+            for ext in output_formats:
+                fpath = os.path.join(UPLOAD_FOLDER, f"{base}.{ext}")
+                if os.path.exists(fpath):
+                    rel_path = os.path.relpath(fpath, UPLOAD_FOLDER)
+                    urls[ext] = f'/diagrams/{rel_path.replace(os.sep, "/")}'
+        logger.info(f"Diagram files generated: {urls}")
+        return jsonify({'diagram_files': urls})
 
     logger.error("Diagram image not found after code execution.")
     return jsonify({'error': 'Diagram image not found'}), 500
