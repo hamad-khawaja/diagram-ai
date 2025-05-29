@@ -182,3 +182,4 @@ terraform/.terraform.tfstate.lock.info
 .python_packages
 .vscode
 */.DS_Store
+terraform/funtion_app/.DS_Store
