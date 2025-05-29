@@ -7,8 +7,7 @@ resource "azurerm_resource_group" "main" {
 # Call the function_app module for the MCP/API endpoint
 module "function_app" {
   source                                 = "./funtion_app"
-  function_app_name                      = "diagram-generator-${var.environment_name}"
-  storage_account_name                   = "st${var.environment_name}func"
+  function_app_name                      = "architecture-diagram-generator-${var.environment_name}"
   app_service_plan_name                  = "asp-${var.environment_name}"
   application_insights_id                = azurerm_application_insights.main.id
   application_insights_connection_string = azurerm_application_insights.main.connection_string

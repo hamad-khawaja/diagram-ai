@@ -10,8 +10,8 @@ from flask import request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import azure.functions as func
-from agents import diagram
-from diagrams_whitelist import is_code_whitelisted
+# from agents import diagram
+# from . import agents
 
 
 # Initialize the Azure Functions app
@@ -114,3 +114,7 @@ async def mcp_save_snippet(context: str, embeddings: str) -> str:
     logger.info("Received MCP request to generate diagram")
     
     #TODO - call the generate_diagram agent and return URL of the diagram
+
+def main(req: func.HttpRequest) -> func.HttpResponse:
+    logger.info("Received API request to main function")
+    return func.HttpResponse("Hello, this is the main function of the Azure Function App. You can access the diagram generation functionality via the /generate endpoint.", status_code=200)

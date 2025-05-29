@@ -3,7 +3,7 @@
 data "azurerm_client_config" "current" {}
 
 resource "azurerm_storage_account" "ai_hub" {
-  name                     = "${var.environment_name}aihubsa"
+  name                     = "${var.environment_name}aihub"
   resource_group_name      = azurerm_resource_group.main.name
   location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
@@ -13,7 +13,7 @@ resource "azurerm_storage_account" "ai_hub" {
 }
 
 resource "azurerm_key_vault" "ai_hub" {
-  name                            = "${var.environment_name}-aihub-kv"
+  name                            = "${var.environment_name}-diagram-aihub"
   location                        = azurerm_resource_group.main.location
   resource_group_name             = azurerm_resource_group.main.name
   tenant_id                       = data.azurerm_client_config.current.tenant_id
