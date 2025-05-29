@@ -5,7 +5,7 @@ resource "azurerm_storage_container" "function_deploy" {
 }
 
 resource "azurerm_storage_account" "function" {
-  name                          = var.storage_account_name
+  name                          = "${var.environment_name}diagramfunc"
   resource_group_name           = var.resource_group_name
   public_network_access_enabled = true
   location                      = var.location

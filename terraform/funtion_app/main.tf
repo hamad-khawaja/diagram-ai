@@ -41,13 +41,10 @@ resource "azurerm_linux_function_app" "main" {
     AzureWebJobsStorage                   = azurerm_storage_account.function.primary_connection_string
     WEBSITE_RUN_FROM_PACKAGE              = local.function_package_url
     APPLICATIONINSIGHTS_CONNECTION_STRING = var.application_insights_connection_string
-    AzureWebJobsStorage__blobServiceUri   = azurerm_storage_account.function.primary_blob_endpoint
-    AzureWebJobsStorage__queueServiceUri  = azurerm_storage_account.function.primary_queue_endpoint
-    AzureWebJobsStorage__tableServiceUri  = azurerm_storage_account.function.primary_table_endpoint
-    AzureWebJobsStorage__credential       = "managedidentity"
     AzureWebJobsFeatureFlags              = "EnableWorkerIndexing"
     AZURE_OPENAI_KEY                      = var.azure_openai_key
     PYTHON_ENABLE_WORKER_EXTENSIONS       = "1"
+    SCM_DO_BUILD_DURING_DEPLOYMENT        = "1"
   }
   site_config {
     always_on = false

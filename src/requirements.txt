@@ -1,3 +1,20 @@
+# Azure Functions runtime and core dependencies
+azure-functions
+
+# Azure service SDKs
+azure-storage-blob              # For blob storage operations
+azure-cosmos                    # For Cosmos DB operations
+azure-ai-projects==1.0.0b10     # For AI project management & getting inference client
+azure-identity                  # For Azure authentication (DefaultAzureCredential)
+azure-ai-inference              # For the EmbeddingsClient type hint and operations
+
+# Testing frameworks
+pytest                          # Core testing framework
+pytest-asyncio                  # Async testing support
+
+# Additional dependencies
+aiohttp                         # Async HTTP client/server framework
+
 openai
 flask
 diagrams==0.24.4

@@ -3,10 +3,6 @@ variable "function_app_name" {
   type        = string
 }
 
-variable "storage_account_name" {
-  description = "Name of the Storage Account for the Function App."
-  type        = string
-}
 
 variable "app_service_plan_name" {
   description = "Name of the App Service Plan."

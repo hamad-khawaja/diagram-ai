@@ -179,3 +179,6 @@ terraform/funtion_app/functionapp.zip
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/.terraform.tfstate.lock.info
+.python_packages
+.vscode
+*/.DS_Store
