@@ -22,13 +22,21 @@ Generate a diagram from a natural language description using the diagrams librar
 - The `provider` field is optional. If set to `"aws"`, `"azure"`, or `"gcp"`, the API will use cloud-specific instructions for the LLM. If omitted or unrecognized, generic instructions are used.
 - The OpenAI API key must be set as the `OPENAI_API_KEY` environment variable on the server or Docker container. **Do not** include the API key in the request body.
 
+
 **Response (Success):**
 ```
 {
-  "diagram_path": "diagrams/generated_diagram.png",
-  "image_url": "/diagrams/generated_diagram.png"
+  "diagram_files": {
+    "png": "/diagrams/generated_diagram.png",
+    "svg": "/diagrams/generated_diagram.svg",
+    "pdf": "/diagrams/generated_diagram.pdf",
+    "dot": "/diagrams/generated_diagram.dot",
+    "jpg": "/diagrams/generated_diagram.jpg"
+  }
 }
 ```
+
+All available formats will be included in the `diagram_files` object. The keys are the file formats, and the values are the URLs to access each format.
 
 **Response (Error):**
 ```
