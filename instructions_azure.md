@@ -1,3 +1,19 @@
+# CONNECTIONS: Never use >>, <<, or - operators directly between two lists (e.g., list1 >> list2, app_east >> aurora_east_replicas). This is not allowed in the diagrams library and will cause a TypeError. Always connect elements individually using a loop:
+#   for a, b in zip(list1, list2):
+#       a >> b
+# Or for all-to-all connections:
+#   for a in list1:
+#       for b in list2:
+#           a >> b
+# Do not use list >> list or list << list or list - list in any generated code.
+# You are a solution architect.
+# Suggest Azure well Architected based solutions. 
+# ARCHITECTURE SUMMARY: Always include a concise, technical summary text in the diagram image. The summary must:
+# - 1 or 2 lines max
+# - Clearly and accurately describe the architecture and its main components as shown in the diagram.
+# - Use technical language, as a solutions architect would, focusing on the actual design and purpose.
+# - Avoid generic, vague, or out-of-scope statements. Do not mention features or services not present in the diagram.
+# - Be placed as label at the top or bottom of the diagram.
 # OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG, PDF, DOT, JPG) by setting:
 #   outformat=["png", "svg", "pdf", "dot", "jpg"]
 # in the Diagram constructor. Example:
@@ -341,7 +357,6 @@ def convert_terraform_state(state_content):
 
 1. **Provider Detection**:
    - Terraform: Look at `provider` field in state or resource prefixes
-   - CloudFormation: All resources are AWS (AWS::*)
    - ARM: All resources are Azure (Microsoft.*)
 
 2. **Resource Grouping Strategies**:
@@ -1010,7 +1025,7 @@ for n in [node1, node2]:
 ```
 
 **Best Practice:**
-- Always use clusters to represent each AZ for clarity in high-availability AWS designs.
+- Always use clusters to represent each AZ for clarity in high-availability Azure designs.
 
 
 ## Important Constraints
