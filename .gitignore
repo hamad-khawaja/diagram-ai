@@ -1,5 +1,5 @@
-# Ignore the generated diagrams_data.jsonl file
-diagrams_data.jsonl
+# Ignore all .jsonl files
+*.jsonl
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
