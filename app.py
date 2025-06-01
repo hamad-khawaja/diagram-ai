@@ -22,10 +22,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Static file serving for diagrams folder
+
+# --- Shared error response helper ---
+def error_response(message, status=400, **kwargs):
+    logger.error(f"API error: {message}")
+    resp = {'error': message}
+    resp.update(kwargs)
+    return jsonify(resp), status
+
+# Static file serving for diagrams folder with error handling and logging
 @app.route('/diagrams/<path:filename>')
 def serve_diagram_file(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
+    try:
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        if not os.path.isfile(file_path):
+            logger.warning(f"Requested diagram file not found: {file_path}")
+            return error_response(f'Diagram file not found: {filename}', 404)
+        logger.info(f"Serving diagram file: {file_path}")
+        return send_from_directory(UPLOAD_FOLDER, filename)
+    except Exception as e:
+        logger.error(f"Error serving diagram file {filename}: {e}")
+        return error_response(f'Failed to serve diagram file: {filename}', 500)
 
 
 
@@ -36,12 +53,6 @@ from llm_providers import generate_code_openai
 def generate_diagram():
     import re, subprocess, traceback, resource
     from diagrams_whitelist import is_code_whitelisted
-
-    def error_response(message, status=400, **kwargs):
-        logger.error(f"API error: {message}")
-        resp = {'error': message}
-        resp.update(kwargs)
-        return jsonify(resp), status
 
     data = request.json
     description = data.get('description') if data else None
@@ -219,7 +230,8 @@ def generate_diagram():
             'sanitized_code_url': sanitized_code_url
         })
 
-    return error_response('Diagram image not found', 500)
+    # Final fallback: should never be reached, but ensures a response is always sent
+    return error_response('Unknown server error', 500)
 
 
 if __name__ == '__main__':
