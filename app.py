@@ -7,7 +7,7 @@ import uuid
 
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173"])
+CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
 UPLOAD_FOLDER = 'diagrams/'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
