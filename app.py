@@ -88,7 +88,6 @@ def generate_diagram():
             return error_response(
                 'OpenAI API quota exceeded. Please check your plan and billing at https://platform.openai.com/account/usage',
                 429,
-                python_code=None,
                 raw_code_url=None,
                 sanitized_code_url=None
             )
@@ -111,6 +110,19 @@ def generate_diagram():
     # Sanitize code
     code = re.sub(r'filename\s*=\s*["\']([^"\']+)["\']', 'filename="generated_diagram"', code)
     code = re.sub(r'outformat\s*=\s*["\']([^"\']+)["\']', 'outformat="png"', code)
+    # Always inject show=False into every with Diagram(...) statement
+    def _inject_show_false(match):
+        args = match.group(1)
+        if 'show=' in args:
+            # Replace any show=... with show=False
+            args = re.sub(r'show\s*=\s*\w+', 'show=False', args)
+        else:
+            if args.strip():
+                args = args.strip() + ', show=False'
+            else:
+                args = 'show=False'
+        return f'with Diagram({args})'
+    code = re.sub(r'with Diagram\(([^)]*)\)', _inject_show_false, code)
     sanitized_code_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.py')
     try:
         with open(sanitized_code_path, 'w') as f:
@@ -218,12 +230,6 @@ def generate_diagram():
         logger.info(f"Diagram files generated: {urls}")
         raw_code_url = '/diagrams/generated_diagram_raw.py'
         sanitized_code_url = '/diagrams/generated_diagram.py'
-        python_code = None
-        try:
-            with open(sanitized_code_path, 'r') as f:
-                python_code = f.read()
-        except Exception as e:
-            logger.warning(f"Could not read sanitized code for response: {e}")
         return jsonify({
             'diagram_files': urls,
             'raw_code_url': raw_code_url,         # Only URL for raw code, not the code itself
@@ -235,4 +241,4 @@ def generate_diagram():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5050)
+    app.run(port=5050)
