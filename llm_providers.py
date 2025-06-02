@@ -1,3 +1,19 @@
+def generate_explanation_openai(prompt):
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key or not api_key.startswith("sk-"):
+        raise ValueError("OPENAI_API_KEY environment variable is missing or invalid.")
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=[
+            {"role": "system", "content": "You are a helpful cloud architecture assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0,
+        max_tokens=512,
+        top_p=1
+    )
+    return response.choices[0].message.content.strip()
 
 from openai import OpenAI
 
