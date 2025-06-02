@@ -6,6 +6,39 @@ from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import uuid
 
+from llm_providers import generate_code_openai, generate_explanation_openai
+
+app = Flask(__name__)
+CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
+UPLOAD_FOLDER = 'diagrams/'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# New endpoint: Explain diagram code
+@app.route('/explain', methods=['POST'])
+def explain_diagram():
+    data = request.json
+    code = data.get('code')
+    if not code or not isinstance(code, str):
+        return error_response('Valid Python code is required for explanation.', 400)
+    prompt = (
+        "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
+        "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
+        "Code:\n"
+        f"{code}"
+    )
+    try:
+        explanation = generate_explanation_openai(prompt)
+        return jsonify({'explanation': explanation})
+    except Exception as e:
+        return error_response(f'Failed to generate explanation: {str(e)}', 500)
+import os
+import json
+import logging
+from flask import Flask, request, jsonify, send_from_directory, render_template_string
+from werkzeug.utils import secure_filename
+from flask_cors import CORS
+import uuid
+
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
@@ -47,7 +80,7 @@ def serve_diagram_file(filename):
 
 
 
-from llm_providers import generate_code_openai
+from llm_providers import generate_code_openai, generate_explanation_openai
 
 @app.route('/generate', methods=['POST'])
 
@@ -130,6 +163,29 @@ def generate_diagram():
                 args = 'show=False'
         return f'with Diagram({args})'
     code = re.sub(r'with Diagram\(([^)]*)\)', _inject_show_false, code)
+
+    # Generate explanation (always, for now)
+    explanation = None
+    try:
+        explanation_prompt = (
+            "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
+            "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
+            "Code:\n"
+            f"{code}"
+        )
+        explanation = generate_explanation_openai(explanation_prompt)
+    except Exception as e:
+        logger.error(f"Failed to generate explanation: {e}")
+        explanation = None
+
+    # Save explanation as Markdown file
+    try:
+        md_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.md')
+        with open(md_path, 'w') as f:
+            f.write(explanation or "(No explanation generated)")
+        logger.info(f"Explanation saved to {md_path}")
+    except Exception as e:
+        logger.error(f"Failed to save explanation markdown: {e}")
     sanitized_code_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.py')
     try:
         with open(sanitized_code_path, 'w') as f:
@@ -263,7 +319,9 @@ def generate_diagram():
         return jsonify({
             'diagram_files': urls,
             'raw_code_url': raw_code_url,         # Only URL for raw code, not the code itself
-            'sanitized_code_url': sanitized_code_url
+            'sanitized_code_url': sanitized_code_url,
+            'explanation': explanation,
+            'explanation_md_url': '/diagrams/generated_diagram.md'
         })
 
     # Final fallback: should never be reached, but ensures a response is always sent

@@ -24,6 +24,7 @@ Generate a diagram from a natural language description using the diagrams librar
 
 
 
+
 **Response (Success):**
 ```
 {
@@ -36,7 +37,9 @@ Generate a diagram from a natural language description using the diagrams librar
   },
   "python_code": "<generated Python code as a string>",
   "raw_code_url": "/diagrams/generated_diagram_raw.py",
-  "sanitized_code_url": "/diagrams/generated_diagram.py"
+  "sanitized_code_url": "/diagrams/generated_diagram.py",
+  "explanation": "<short, bullet-point explanation as a string>",
+  "explanation_md_url": "/diagrams/generated_diagram.md"
 }
 ```
 
@@ -44,6 +47,8 @@ Generate a diagram from a natural language description using the diagrams librar
 - `python_code`: The generated Python code as a string (for downstream use or inspection).
 - `raw_code_url`: URL to download the raw generated code (before sanitization/whitelisting).
 - `sanitized_code_url`: URL to download the sanitized code (safe for execution).
+- `explanation`: A short, bullet-point summary of the generated architecture, produced by the LLM.
+- `explanation_md_url`: URL to download the explanation as a Markdown file.
 
 
 **Response (Error):**
@@ -70,6 +75,7 @@ HTTP status code: 429
 
 
 
+
 **Example cURL:**
 ```
 curl -X POST http://localhost:5050/generate \
@@ -78,6 +84,21 @@ curl -X POST http://localhost:5050/generate \
     "description": "AWS web app with EC2 and RDS",
     "provider": "aws"
   }'
+```
+
+**Example Success Response:**
+```
+{
+  "diagram_files": {
+    "png": "/diagrams/generated_diagram.png",
+    "svg": "/diagrams/generated_diagram.svg"
+  },
+  "python_code": "from diagrams import Diagram...",
+  "raw_code_url": "/diagrams/generated_diagram_raw.py",
+  "sanitized_code_url": "/diagrams/generated_diagram.py",
+  "explanation": "- Uses AWS Lambda for compute...\n- S3 is used for storage...",
+  "explanation_md_url": "/diagrams/generated_diagram.md"
+}
 ```
 
 ---
