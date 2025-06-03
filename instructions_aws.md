@@ -78,6 +78,8 @@
 #   ✅ from diagrams.aws.compute import EKS                  (correct)
 #   ❌ from diagrams.aws.compute import ECS                  (wrong)
 #   ✅ from diagrams.aws.compute import ECS                  (correct)
+#   ❌ from diagrams.aws.compute import SageMaker            (wrong)
+#   ✅ from diagrams.aws.ml import Sagemaker                 (correct)
 
 #
 # How to Find the Right Import:
