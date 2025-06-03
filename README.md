@@ -1,6 +1,6 @@
 # AI Diagram Generator API
 
-This project provides a robust, secure, and user-friendly Python Flask API for generating diagrams from user descriptions using OpenAI GPT-4.1 and the diagrams library. It is fully containerized with Docker.
+This project delivers a robust, production-ready Flask API for automatically generating, validating, and explaining cloud architecture diagrams from natural language descriptions. Leveraging OpenAI’s GPT-4.1 and the Python diagrams library, the API transforms user prompts into executable Python code, produces multi-format architecture diagrams (PNG, SVG, PDF, etc.), and generates concise technical explanations in both plain text and Markdown. The system features advanced error handling, code sanitization, and supports provider-specific (AWS, Azure, GCP) instructions. All outputs and logs are accessible via secure endpoints, making this solution ideal for integrating AI-powered diagram generation into developer tools, documentation workflows, or educational platforms.
 
 ## Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) installed on your system
