@@ -307,6 +307,17 @@ def generate_diagram():
                     }
                     logger.error("API response to frontend: %s", json.dumps(response_data, indent=2))
                     return jsonify(response_data), 422
+                # If it's a TypeError for list >> list, return a user-friendly error
+                if 'TypeError' in proc.stderr and 'unsupported operand type(s) for >>' in proc.stderr:
+                    response_data = {
+                        'error': 'Diagram code execution failed: You cannot use >> between lists of nodes. Connect nodes individually or use a nested loop.',
+                        'stderr': proc.stderr,
+                        'stdout': proc.stdout,
+                        'raw_code_url': raw_code_url,
+                        'sanitized_code_url': sanitized_code_url
+                    }
+                    logger.error("API response to frontend: %s", json.dumps(response_data, indent=2))
+                    return jsonify(response_data), 422
                 # Try to return the diagram if it was generated, even if there was an error
                 image_candidates = []
                 try:
