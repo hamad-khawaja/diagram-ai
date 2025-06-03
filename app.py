@@ -9,6 +9,7 @@ import uuid
 import logging
 import subprocess as sp
 import traceback
+import time
 
 # ===================
 # Imports (Third-Party)
@@ -162,6 +163,11 @@ from llm_providers import generate_code_openai, generate_explanation_openai
 @app.route('/generate', methods=['POST'])
 
 def generate_diagram():
+    timings = {}
+    start_total = time.time()
+
+    # LLM code generation
+    start = time.time()
     # Predefine code URLs for error handling
     raw_code_url = '/diagrams/generated_diagram_raw.py'
     sanitized_code_url = '/diagrams/generated_diagram.py'
@@ -196,6 +202,7 @@ def generate_diagram():
 
 
     # Generate code with selected LLM (from env)
+    start_llm = time.time()
     try:
         logger.info(f"[DEBUG] LLM_PROVIDER in generate_diagram: {LLM_PROVIDER}")
         logger.info(f"[DEBUG] Description: {description}")
@@ -219,6 +226,7 @@ def generate_diagram():
                 sanitized_code_url=None
             )
         return error_response(f'{LLM_PROVIDER.capitalize()} API error: {str(e)}', 500, traceback=tb)
+    timings['llm'] = time.time() - start_llm
 
     # Check for non-code or fallback LLM responses
     if code.strip().lower().startswith("sorry") or not ("import" in code or "with Diagram" in code):
@@ -226,6 +234,7 @@ def generate_diagram():
         return error_response(f"The model could not generate valid code for your request: {user_msg}", 422)
 
     # Save raw code
+    start_save_raw = time.time()
     raw_code_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram_raw.py')
     try:
         with open(raw_code_path, 'w') as f:
@@ -233,6 +242,7 @@ def generate_diagram():
         logger.info(f"Raw code saved to {raw_code_path}")
     except Exception as e:
         return error_response('Failed to save raw code', 500)
+    timings['save_raw_code'] = time.time() - start_save_raw
 
     # Sanitize code
     code = re.sub(r'filename\s*=\s*["\']([^"\']+)["\']', 'filename="generated_diagram"', code)
@@ -252,6 +262,7 @@ def generate_diagram():
     code = re.sub(r'with Diagram\(([^)]*)\)', _inject_show_false, code)
 
     # Save sanitized code before running it!
+    start_save_sanitized = time.time()
     sanitized_code_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.py')
     try:
         with open(sanitized_code_path, 'w') as f:
@@ -259,8 +270,10 @@ def generate_diagram():
         logger.info(f"Sanitized code saved to {sanitized_code_path}")
     except Exception as e:
         return error_response('Failed to save sanitized code', 500)
+    timings['save_sanitized_code'] = time.time() - start_save_sanitized
 
     # Run diagram code
+    start_exec = time.time()
     cwd = os.getcwd()
     try:
         os.chdir(UPLOAD_FOLDER)
@@ -354,6 +367,7 @@ def generate_diagram():
             return error_response(f'Diagram execution error: {str(e)}', 500)
     finally:
         os.chdir(cwd)
+    timings['diagram_execution'] = time.time() - start_exec
 
     # Collect output files
     output_formats = ["png", "svg", "pdf", "dot", "jpg"]
@@ -387,6 +401,7 @@ def generate_diagram():
                         fix_svg_inplace(svg_path)
 
     # --- Generate explanation (always, for now) ---
+    start_explanation = time.time()
     explanation = None
     try:
         explanation_prompt = (
@@ -405,6 +420,7 @@ def generate_diagram():
     except Exception as e:
         logger.error(f"[DEBUG] Failed to generate explanation: {e}")
         explanation = None
+    timings['explanation'] = time.time() - start_explanation
 
     # Save explanation as Markdown file
     try:
@@ -416,6 +432,7 @@ def generate_diagram():
         logger.error(f"Failed to save explanation markdown: {e}")
 
     # --- S3 Upload Logic (after all outputs and variables are defined) ---
+    start_s3 = time.time()
     s3_folder = str(uuid.uuid4())
     uploaded_files = {}
     for fname in os.listdir(UPLOAD_FOLDER):
@@ -427,6 +444,7 @@ def generate_diagram():
             url = generate_presigned_url(s3_key)
             uploaded_files[fname] = url
     uploaded_files['s3_folder'] = s3_folder
+    timings['s3_upload'] = time.time() - start_s3
 
     if base_names:
         # Map file extensions to S3 URLs for diagram_files
@@ -440,6 +458,9 @@ def generate_diagram():
         raw_code_url = uploaded_files.get('generated_diagram_raw.py')
         sanitized_code_url = uploaded_files.get('generated_diagram.py')
         explanation_md_url = uploaded_files.get('generated_diagram.md')
+        timings['total'] = time.time() - start_total
+        # Log timings before returning
+        logger.info(f"TIMINGS: {json.dumps(timings, indent=2)}")
         return jsonify({
             'diagram_files': urls,  # S3 URLs for images and outputs
             'raw_code_url': raw_code_url,

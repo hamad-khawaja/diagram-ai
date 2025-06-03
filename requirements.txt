@@ -9,4 +9,4 @@ flask-cors
 jsonlines
 beautifulsoup4
 boto3
-```
+awscli

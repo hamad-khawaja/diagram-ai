@@ -1,0 +1,8 @@
+- The diagram models a classic AWS 3-tier web architecture using the diagrams Python library.
+- All core resources (ALB, EC2, RDS) are grouped within a single VPC, representing a secure, isolated network.
+- The public subnet (Web Tier) contains an Application Load Balancer (ALB) to distribute incoming traffic.
+- The private subnet (App Tier) hosts two EC2 instances acting as application servers, isolated from direct public access.
+- The private subnet (Data Tier) contains an RDS SQL database, further isolated for security.
+- The ALB forwards traffic from the public subnet to the EC2 application servers in the private subnet.
+- Each EC2 application server communicates with both the RDS database (for data storage) and an S3 bucket (for static assets), with S3 located outside the VPC.
+- A summary label is included at the top of the diagram, describing the overall architecture and flow.
