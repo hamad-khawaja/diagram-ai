@@ -143,10 +143,22 @@ def generate_code_openai(description, instructions):
 
 def extract_python_code(content):
     import re
+    # Try to extract code from triple backticks (with or without python)
     match = re.search(r"```python(.*?)```", content, re.DOTALL | re.IGNORECASE)
     if match:
         code = match.group(1).strip()
     else:
         match = re.search(r"```(.*?)```", content, re.DOTALL)
         code = match.group(1).strip() if match else content.strip()
+
+    # Remove any leading non-code lines (e.g., tool_code, explanations, etc.)
+    code_lines = code.splitlines()
+    # Find the first line that looks like valid Python (import, from, def, class, or with Diagram)
+    for i, line in enumerate(code_lines):
+        if re.match(r'^(import |from |def |class |with Diagram)', line.strip()):
+            code = '\n'.join(code_lines[i:])
+            break
+    else:
+        # If no valid code line found, return empty string
+        code = ''
     return code
