@@ -206,6 +206,27 @@ def generate_diagram():
     # Whitelist check
     allowed, bad_line = is_code_whitelisted(code)
     if not allowed:
+        # Try to extract the invalid resource/class name for a more helpful error
+        import re
+        m = re.match(r'from diagrams\.([a-z]+)\.([a-z_]+) import (.+)', bad_line)
+        if m:
+            provider, category, resources = m.groups()
+            # Check which resource is invalid (if multiple, comma-separated)
+            invalids = []
+            for res in [r.strip() for r in resources.split(",")]:
+                try:
+                    __import__(f'diagrams.{provider}.{category}', fromlist=[res])
+                    if not hasattr(__import__(f'diagrams.{provider}.{category}', fromlist=[res]), res):
+                        invalids.append(res)
+                except Exception:
+                    invalids.append(res)
+            if invalids:
+                return error_response(
+                    f"The following resource(s) are not valid in diagrams.{provider}.{category}: {', '.join(invalids)}.",
+                    400,
+                    raw_code_file=raw_code_path
+                )
+        # Fallback generic error
         return error_response(f'Invalid or unsupported import in generated code: {bad_line}', 400, raw_code_file=raw_code_path)
 
     # Sanitize code
