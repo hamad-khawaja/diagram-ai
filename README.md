@@ -1,6 +1,6 @@
 # AI Diagram Generator API
 
-This project provides a robust, secure, and user-friendly Python Flask API for generating diagrams from user descriptions using OpenAI GPT-4.1 and the diagrams library. It is fully containerized with Docker.
+This project delivers a robust, production-ready Flask API for automatically generating, validating, and explaining cloud architecture diagrams from natural language descriptions. Leveraging OpenAI’s GPT-4.1 and the Python diagrams library, the API transforms user prompts into executable Python code, produces multi-format architecture diagrams (PNG, SVG, PDF, etc.), and generates concise technical explanations in both plain text and Markdown. The system features advanced error handling, code sanitization, and supports provider-specific (AWS, Azure, GCP) instructions. All outputs and logs are accessible via secure endpoints, making this solution ideal for integrating AI-powered diagram generation into developer tools, documentation workflows, or educational platforms.
 
 ## Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) installed on your system
@@ -8,15 +8,18 @@ This project provides a robust, secure, and user-friendly Python Flask API for g
 
 ## Quick Start (Docker)
 
+
 ### 1. Clone the repository
+Clone this repository to your local machine:
 ```
-git clone <your-repo-url>
-cd mingrammer
+git clone https://github.com/hamadkhawaja/diagram-ai.git
+cd diagram-ai
 ```
 
 ### 2. Build the Docker image
+
 ```
-docker build -t mingrammer-diagram-api .
+docker build -t diagram-ai-api .
 ```
 
 ### 3. Run the Docker container
@@ -24,15 +27,20 @@ Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key:
 ```
 docker run -d \
   -e OPENAI_API_KEY=YOUR_OPENAI_API_KEY \
+  -e S3_BUCKET=<UPLOAD_BUCKET_NAME> \
   -p 5000:5000 \
-  --name mingrammer-diagram-api \
-  mingrammer-diagram-api
+  --name diagram-ai-api \
+  diagram-ai-api
 ```
 
 - The API will be available at: http://localhost:5000
 
+
 ### 4. Test the API
 See `API_USAGE.md` for endpoint documentation and example requests.
+
+**Multi-format Output:**
+The API now returns URLs for all available diagram formats (PNG, SVG, PDF, DOT, JPG) in the response. You can access any format using the provided URLs.
 
 ---
 
@@ -51,7 +59,12 @@ See `API_USAGE.md` for endpoint documentation and example requests.
    ```
    export OPENAI_API_KEY=YOUR_OPENAI_API_KEY
    ```
-5. Run the app:
+5. Set your S3 bucket name as an environment variable:
+   ```
+   export S3_BUCKET=<UPLOAD_BUCKET_NAME>
+   ```
+
+6. Run the app:
    ```
    python app.py
    ```
@@ -100,3 +113,18 @@ See `API_USAGE.md` for endpoint documentation and example requests.
 
 ## License
 MIT
+
+## Environment Variables
+
+- `OPENAI_API_KEY` – Your OpenAI API key (required)
+- `S3_BUCKET` – The name of your S3 bucket for storing generated files (required)
+
+For Docker, add the S3_BUCKET variable to your `docker run` command:
+```
+docker run -d \
+  -e OPENAI_API_KEY=YOUR_OPENAI_API_KEY \
+  -e S3_BUCKET=<UPLOAD_BUCKET_NAME> \
+  -p 5000:5000 \
+  --name diagram-ai-api \
+  diagram-ai-api
+```

@@ -1,3 +1,5 @@
+# Ignore all .jsonl files
+*.jsonl
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -172,3 +174,22 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.lock.hcl
+.terraformrc
+terraform.rc
+terraform.tfvars
+.terraform/
+.terraform/
+.terraform/
