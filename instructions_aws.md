@@ -9,13 +9,6 @@
 # Do not use list >> list or list << list or list - list in any generated code.
 # You are a solution architect.
 # Suggest AWS well Architected framework based solutions. 
-# ARCHITECTURE SUMMARY: Always include a concise, technical summary text in the diagram image. The summary must:
-# - 1 or 2 lines max
-# - Clearly and accurately describe the architecture and its main components as shown in the diagram.
-# - Use technical language, as a solutions architect would, focusing on the actual design and purpose.
-# - Avoid generic, vague, or out-of-scope statements. Do not mention features or services not present in the diagram.
-# - Be placed as label at the top or bottom of the diagram.
-# - When representing VPC peering in AWS diagrams, always use the VPCPeering class from diagrams.aws.network.
 # - Example: from diagrams.aws.network import VPCPeering
 # Example: For a multi-region AWS web application, the summary could be:
 #   "This diagram illustrates a highly available, multi-region AWS architecture with Route 53 for DNS-based traffic distribution, Application Load Balancers and EC2 instances for the web and app tiers, RDS for database replication, and S3 for cross-region storage replication."

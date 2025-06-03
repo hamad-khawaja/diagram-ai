@@ -161,4 +161,9 @@ def extract_python_code(content):
     else:
         # If no valid code line found, return empty string
         code = ''
+
+    # --- Post-process: Remove any Diagram.add_label calls (not supported by diagrams lib) ---
+    code = re.sub(r"Diagram\\.add_label\\s*\\(.*?\\)\\s*", "", code)
+    # Optionally, remove empty lines left by this
+    code = '\n'.join([l for l in code.splitlines() if l.strip()])
     return code
