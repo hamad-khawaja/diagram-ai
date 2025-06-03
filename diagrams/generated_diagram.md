@@ -1,8 +1,0 @@
-- The architecture represents a simple AWS web application stack.
-- Route 53 provides global DNS resolution, directing user traffic to the Application Load Balancer (ALB).
-- The ALB is deployed in a public subnet within a VPC and is accessible via an Internet Gateway.
-- The ALB forwards incoming HTTP/S requests to an EC2 instance running the web application in a private subnet.
-- The EC2 instance communicates with an RDS MySQL database, also located in the private subnet, for data storage.
-- An S3 bucket is used to store and serve static assets (e.g., images, CSS, JS) for the web application.
-- The EC2 instance accesses the S3 bucket to retrieve or store static content as needed.
-- The diagram includes a summary label describing the architecture, but it is visually hidden (invisible edge).
