@@ -27,6 +27,7 @@ Replace `YOUR_OPENAI_API_KEY` with your actual OpenAI API key:
 ```
 docker run -d \
   -e OPENAI_API_KEY=YOUR_OPENAI_API_KEY \
+  -e S3_BUCKET=<UPLOAD_BUCKET_NAME> \
   -p 5000:5000 \
   --name diagram-ai-api \
   diagram-ai-api
@@ -58,7 +59,12 @@ The API now returns URLs for all available diagram formats (PNG, SVG, PDF, DOT, 
    ```
    export OPENAI_API_KEY=YOUR_OPENAI_API_KEY
    ```
-5. Run the app:
+5. Set your S3 bucket name as an environment variable:
+   ```
+   export S3_BUCKET=<UPLOAD_BUCKET_NAME>
+   ```
+
+6. Run the app:
    ```
    python app.py
    ```
@@ -107,3 +113,18 @@ The API now returns URLs for all available diagram formats (PNG, SVG, PDF, DOT, 
 
 ## License
 MIT
+
+## Environment Variables
+
+- `OPENAI_API_KEY` – Your OpenAI API key (required)
+- `S3_BUCKET` – The name of your S3 bucket for storing generated files (required)
+
+For Docker, add the S3_BUCKET variable to your `docker run` command:
+```
+docker run -d \
+  -e OPENAI_API_KEY=YOUR_OPENAI_API_KEY \
+  -e S3_BUCKET=<UPLOAD_BUCKET_NAME> \
+  -p 5000:5000 \
+  --name diagram-ai-api \
+  diagram-ai-api
+```

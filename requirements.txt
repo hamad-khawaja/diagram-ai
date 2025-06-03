@@ -8,3 +8,5 @@ requests==2.31.0
 flask-cors
 jsonlines
 beautifulsoup4
+boto3
+```

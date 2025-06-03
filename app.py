@@ -1,3 +1,67 @@
+# ===================
+# Imports (Standard Library)
+# ===================
+import os
+import sys
+import re
+import json
+import uuid
+import logging
+import subprocess as sp
+import traceback
+
+# ===================
+# Imports (Third-Party)
+# ===================
+from flask import Flask, request, jsonify, send_from_directory, render_template_string
+from werkzeug.utils import secure_filename
+from flask_cors import CORS
+import boto3
+from botocore.exceptions import ClientError
+
+# ===================
+# Imports (Local)
+# ===================
+from llm_providers import (
+    generate_code_openai, generate_explanation_openai,
+    generate_code_gemini, generate_explanation_gemini
+)
+
+# ===================
+# Global Variables & Constants
+# ===================
+LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'openai').strip().lower()
+S3_BUCKET = os.environ.get('S3_BUCKET')
+if not S3_BUCKET:
+    raise RuntimeError("S3_BUCKET environment variable is not set")
+s3_client = boto3.client("s3")
+UPLOAD_FOLDER = 'diagrams/'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# ===================
+# Logging Setup
+# ===================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+print(f"[DEBUG] Using LLM provider: {LLM_PROVIDER}")
+logger.info(f"[DEBUG] Using LLM provider: {LLM_PROVIDER}")
+
+# ===================
+# Flask App Setup
+# ===================
+app = Flask(__name__)
+CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
+
+# ===================
+# Utility Functions
+# ===================
 def fix_dot_inplace(dot_path):
     try:
         # Call the fix_dot_icons.py script to overwrite the DOT in place
@@ -11,8 +75,7 @@ def fix_dot_inplace(dot_path):
             logger.warning(f"[DEBUG] fix_dot_icons.py failed for {dot_path}: {result.stderr}")
     except Exception as e:
         logger.warning(f"[DEBUG] Exception running fix_dot_icons.py for {dot_path}: {e}")
-import sys
-import subprocess as sp
+
 def fix_svg_inplace(svg_path):
     try:
         # Call the fix_svg_icons.py script to overwrite the SVG in place
@@ -26,38 +89,6 @@ def fix_svg_inplace(svg_path):
             logger.warning(f"[DEBUG] fix_svg_icons.py failed for {svg_path}: {result.stderr}")
     except Exception as e:
         logger.warning(f"[DEBUG] Exception running fix_svg_icons.py for {svg_path}: {e}")
-
-# --- LLM Provider and Logging Setup ---
-import os
-import logging
-
-LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'openai').strip().lower()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-print(f"[DEBUG] Using LLM provider: {LLM_PROVIDER}")
-logger.info(f"[DEBUG] Using LLM provider: {LLM_PROVIDER}")
-
-from flask import Flask, request, jsonify, send_from_directory, render_template_string
-from werkzeug.utils import secure_filename
-from flask_cors import CORS
-import uuid
-from llm_providers import (
-    generate_code_openai, generate_explanation_openai,
-    generate_code_gemini, generate_explanation_gemini
-)
-
-app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
-UPLOAD_FOLDER = 'diagrams/'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # New endpoint: Explain diagram code
 @app.route('/explain', methods=['POST'])
@@ -203,32 +234,6 @@ def generate_diagram():
     except Exception as e:
         return error_response('Failed to save raw code', 500)
 
-    # Whitelist check
-    allowed, bad_line = is_code_whitelisted(code)
-    if not allowed:
-        # Try to extract the invalid resource/class name for a more helpful error
-        import re
-        m = re.match(r'from diagrams\.([a-z]+)\.([a-z_]+) import (.+)', bad_line)
-        if m:
-            provider, category, resources = m.groups()
-            # Check which resource is invalid (if multiple, comma-separated)
-            invalids = []
-            for res in [r.strip() for r in resources.split(",")]:
-                try:
-                    __import__(f'diagrams.{provider}.{category}', fromlist=[res])
-                    if not hasattr(__import__(f'diagrams.{provider}.{category}', fromlist=[res]), res):
-                        invalids.append(res)
-                except Exception:
-                    invalids.append(res)
-            if invalids:
-                return error_response(
-                    f"The following resource(s) are not valid in diagrams.{provider}.{category}: {', '.join(invalids)}.",
-                    400,
-                    raw_code_file=raw_code_path
-                )
-        # Fallback generic error
-        return error_response(f'Invalid or unsupported import in generated code: {bad_line}', 400, raw_code_file=raw_code_path)
-
     # Sanitize code
     code = re.sub(r'filename\s*=\s*["\']([^"\']+)["\']', 'filename="generated_diagram"', code)
     code = re.sub(r'outformat\s*=\s*["\']([^"\']+)["\']', 'outformat="png"', code)
@@ -246,34 +251,7 @@ def generate_diagram():
         return f'with Diagram({args})'
     code = re.sub(r'with Diagram\(([^)]*)\)', _inject_show_false, code)
 
-    # Generate explanation (always, for now)
-    explanation = None
-    try:
-        explanation_prompt = (
-            "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
-            "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
-            "Code:\n"
-            f"{code}"
-        )
-        logger.info(f"[DEBUG] Explanation prompt: {explanation_prompt[:200]}...")
-        if LLM_PROVIDER == 'gemini':
-            logger.info("[DEBUG] Calling generate_explanation_gemini...")
-            explanation = generate_explanation_gemini(explanation_prompt)
-        else:
-            logger.info("[DEBUG] Calling generate_explanation_openai...")
-            explanation = generate_explanation_openai(explanation_prompt)
-    except Exception as e:
-        logger.error(f"[DEBUG] Failed to generate explanation: {e}")
-        explanation = None
-
-    # Save explanation as Markdown file
-    try:
-        md_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.md')
-        with open(md_path, 'w') as f:
-            f.write(explanation or "(No explanation generated)")
-        logger.info(f"Explanation saved to {md_path}")
-    except Exception as e:
-        logger.error(f"Failed to save explanation markdown: {e}")
+    # Save sanitized code before running it!
     sanitized_code_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.py')
     try:
         with open(sanitized_code_path, 'w') as f:
@@ -408,27 +386,89 @@ def generate_diagram():
                         svg_path = os.path.join(root, fname)
                         fix_svg_inplace(svg_path)
 
+    # --- Generate explanation (always, for now) ---
+    explanation = None
+    try:
+        explanation_prompt = (
+            "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
+            "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
+            "Code:\n"
+            f"{code}"
+        )
+        logger.info(f"[DEBUG] Explanation prompt: {explanation_prompt[:200]}...")
+        if LLM_PROVIDER == 'gemini':
+            logger.info("[DEBUG] Calling generate_explanation_gemini...")
+            explanation = generate_explanation_gemini(explanation_prompt)
+        else:
+            logger.info("[DEBUG] Calling generate_explanation_openai...")
+            explanation = generate_explanation_openai(explanation_prompt)
+    except Exception as e:
+        logger.error(f"[DEBUG] Failed to generate explanation: {e}")
+        explanation = None
+
+    # Save explanation as Markdown file
+    try:
+        md_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.md')
+        with open(md_path, 'w') as f:
+            f.write(explanation or "(No explanation generated)")
+        logger.info(f"Explanation saved to {md_path}")
+    except Exception as e:
+        logger.error(f"Failed to save explanation markdown: {e}")
+
+    # --- S3 Upload Logic (after all outputs and variables are defined) ---
+    s3_folder = str(uuid.uuid4())
+    uploaded_files = {}
+    for fname in os.listdir(UPLOAD_FOLDER):
+        if fname.startswith('.'):
+            continue  # skip hidden files like .DS_Store
+        local_path = os.path.join(UPLOAD_FOLDER, fname)
+        if os.path.isfile(local_path):
+            s3_key = upload_file_to_s3(local_path, s3_folder, fname)
+            url = generate_presigned_url(s3_key)
+            uploaded_files[fname] = url
+    uploaded_files['s3_folder'] = s3_folder
+
     if base_names:
+        # Map file extensions to S3 URLs for diagram_files
         urls = {}
         for base in base_names:
             for ext in output_formats:
-                fpath = os.path.join(UPLOAD_FOLDER, f"{base}.{ext}")
-                if os.path.exists(fpath):
-                    rel_path = os.path.relpath(fpath, UPLOAD_FOLDER)
-                    urls[ext] = f'/diagrams/{rel_path.replace(os.sep, "/")}'
-        logger.info(f"Diagram files generated: {urls}")
-        raw_code_url = '/diagrams/generated_diagram_raw.py'
-        sanitized_code_url = '/diagrams/generated_diagram.py'
+                fname = f"{base}.{ext}"
+                if fname in uploaded_files:
+                    urls[ext] = uploaded_files[fname]
+        # Use S3 URLs for code and markdown files
+        raw_code_url = uploaded_files.get('generated_diagram_raw.py')
+        sanitized_code_url = uploaded_files.get('generated_diagram.py')
+        explanation_md_url = uploaded_files.get('generated_diagram.md')
         return jsonify({
-            'diagram_files': urls,
-            'raw_code_url': raw_code_url,         # Only URL for raw code, not the code itself
+            'diagram_files': urls,  # S3 URLs for images and outputs
+            'raw_code_url': raw_code_url,
             'sanitized_code_url': sanitized_code_url,
             'explanation': explanation,
-            'explanation_md_url': '/diagrams/generated_diagram.md'
+            'explanation_md_url': explanation_md_url,
+            'uploaded_files': uploaded_files  # all S3 URLs for all files
         })
 
     # Final fallback: should never be reached, but ensures a response is always sent
     return error_response('Unknown server error', 500)
+
+
+def upload_file_to_s3(local_path, s3_folder, filename):
+    s3_key = f"{s3_folder}/{filename}"
+    s3_client.upload_file(local_path, S3_BUCKET, s3_key)
+    return s3_key
+
+def generate_presigned_url(s3_key, expires_in=3600):
+    try:
+        url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': S3_BUCKET, 'Key': s3_key},
+            ExpiresIn=expires_in
+        )
+        return url
+    except ClientError as e:
+        logger.error(f"Failed to generate presigned URL: {e}")
+        return None
 
 
 if __name__ == '__main__':
