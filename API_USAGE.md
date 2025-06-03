@@ -9,18 +9,22 @@ Generate a diagram from a natural language description using the diagrams librar
 
 
 
+
 **Request Body (JSON):**
 ```
 {
   "description": "<Your architecture description>",
-  "provider": "aws"   // Optional: "aws", "azure", or "gcp". If omitted or invalid, defaults to generic instructions.
+  "provider": "aws"        // Optional: "aws", "azure", or "gcp". If omitted or invalid, defaults to generic instructions.
 }
 ```
 
 
+
+
 **Note:**
 - The `provider` field is optional. If set to `"aws"`, `"azure"`, or `"gcp"`, the API will use cloud-specific instructions for the LLM. If omitted or unrecognized, generic instructions are used.
-- The OpenAI API key must be set as the `OPENAI_API_KEY` environment variable on the server or Docker container. **Do not** include the API key in the request body.
+- The LLM provider is selected at app startup using the `LLM_PROVIDER` environment variable (`openai` or `gemini`).
+- Set the appropriate API key as an environment variable: `OPENAI_API_KEY` for OpenAI, or `GEMINI_API_KEY` for Gemini. **Do not** include API keys in the request body.
 
 
 
@@ -71,6 +75,7 @@ Generate a diagram from a natural language description using the diagrams librar
 }
 ```
 HTTP status code: 429
+
 
 
 
@@ -132,7 +137,8 @@ curl http://localhost:5050/diagrams/generated_diagram.png --output diagram.png
 ---
 
 ## Troubleshooting
-- Ensure your OpenAI API key is valid and has sufficient quota.
+- Ensure your OpenAI or Gemini API key is valid and has sufficient quota.
+- Set the `LLM_PROVIDER` environment variable to `openai` or `gemini` before starting the app.
 - Check `app.log` for server-side errors.
 - Make sure Graphviz and all Python dependencies are installed.
 - If diagrams are not generated, inspect the raw code in `diagrams/generated_diagram_raw.py` (or download via `raw_code_url`).
