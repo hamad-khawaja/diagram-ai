@@ -53,7 +53,7 @@ def generate_explanation_openai(prompt):
         ],
         temperature=0,
         max_tokens=15120,
-        top_p=1
+        top_p=0.7
     )
     return response.choices[0].message.content.strip()
 

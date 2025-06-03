@@ -435,11 +435,13 @@ def generate_diagram():
     start_s3 = time.time()
     s3_folder = str(uuid.uuid4())
     uploaded_files = {}
-    for fname in os.listdir(UPLOAD_FOLDER):
-        if fname.startswith('.'):
-            continue  # skip hidden files like .DS_Store
-        local_path = os.path.join(UPLOAD_FOLDER, fname)
-        if os.path.isfile(local_path):
+    # Upload all files in UPLOAD_FOLDER and subfolders, but flatten the S3 structure
+    for root, dirs, files in os.walk(UPLOAD_FOLDER):
+        for fname in files:
+            if fname.startswith('.'):
+                continue  # skip hidden files like .DS_Store
+            local_path = os.path.join(root, fname)
+            # Flatten: use only the filename (not the relative path) in S3
             s3_key = upload_file_to_s3(local_path, s3_folder, fname)
             url = generate_presigned_url(s3_key)
             uploaded_files[fname] = url
