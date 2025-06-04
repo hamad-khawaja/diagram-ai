@@ -102,11 +102,53 @@ resource "aws_apigatewayv2_integration" "diagram_ec2_integration" {
 
 # /generate route
 
-# Catch-all proxy route for all paths and methods
+# --- Cognito User Pool ---
+resource "aws_cognito_user_pool" "diagram_users" {
+  name = "diagram-users"
+}
+
+# --- Cognito User Pool Domain ---
+resource "aws_cognito_user_pool_domain" "diagram_users_domain" {
+  domain       = "diagram-users-${random_id.suffix.hex}"
+  user_pool_id = aws_cognito_user_pool.diagram_users.id
+}
+
+# --- Cognito User Pool Client ---
+resource "aws_cognito_user_pool_client" "diagram_users_client" {
+  name         = "diagram-users-client"
+  user_pool_id = aws_cognito_user_pool.diagram_users.id
+  generate_secret = false
+  allowed_oauth_flows = ["code", "implicit"]
+  allowed_oauth_scopes = ["openid", "email", "profile"]
+  allowed_oauth_flows_user_pool_client = true
+  callback_urls = ["https://diagram-web-ai.vercel.app/callback"] # <-- update this
+  logout_urls   = ["https://diagram-web-ai.vercel.app/logout"]  # <-- update this
+  supported_identity_providers = ["COGNITO"]
+}
+
+resource "random_id" "suffix" {
+  byte_length = 4
+}
+
+# --- API Gateway JWT Authorizer ---
+resource "aws_apigatewayv2_authorizer" "diagram_jwt_auth" {
+  api_id           = aws_apigatewayv2_api.diagram_http_api.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "diagram-jwt-auth"
+  jwt_configuration {
+    audience = [aws_cognito_user_pool_client.diagram_users_client.id]
+    issuer   = "https://cognito-idp.us-east-1.amazonaws.com/${aws_cognito_user_pool.diagram_users.id}"
+  }
+}
+
+# --- Require JWT Authorizer for all routes ---
 resource "aws_apigatewayv2_route" "proxy" {
   api_id    = aws_apigatewayv2_api.diagram_http_api.id
   route_key = "ANY /{proxy+}"
   target    = "integrations/${aws_apigatewayv2_integration.diagram_ec2_integration.id}"
+  authorizer_id = aws_apigatewayv2_authorizer.diagram_jwt_auth.id
+  authorization_type = "JWT"
 }
 
 # Default stage (auto-deploy)
@@ -114,6 +156,10 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.diagram_http_api.id
   name        = "$default"
   auto_deploy = true
+  default_route_settings {
+    throttling_burst_limit = 100
+    throttling_rate_limit  = 50
+  }
   # No CORS or access log settings here; CORS is set per route for HTTP API
 }
 
