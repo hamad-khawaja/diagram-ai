@@ -9,16 +9,10 @@
 # Do not use list >> list or list << list or list - list in any generated code.
 # You are a solution architect.
 # Suggest Azure well Architected based solutions. 
-# ARCHITECTURE SUMMARY: Always include a concise, technical summary text in the diagram image. The summary must:
-# - 1 or 2 lines max
-# - Clearly and accurately describe the architecture and its main components as shown in the diagram.
-# - Use technical language, as a solutions architect would, focusing on the actual design and purpose.
-# - Avoid generic, vague, or out-of-scope statements. Do not mention features or services not present in the diagram.
-# - Be placed as label at the top or bottom of the diagram.
-# OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG, PDF, DOT, JPG) by setting:
-#   outformat=["png", "svg", "pdf", "dot", "jpg"]
+# OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG) by setting:
+#   outformat=["png", "svg"]
 # in the Diagram constructor. Example:
-#   with Diagram("...", outformat=["png", "svg", "pdf", "dot", "jpg"]):
+#   with Diagram("...", outformat=["png", "svg"]):
 # Azure Diagrams: Concise Instructions
 
 Use the diagrams library (https://diagrams.mingrammer.com/) to generate Azure architecture diagrams.
@@ -167,7 +161,7 @@ with Diagram("Azure Architecture", filename="my_azure_diagram", show=False):
     VM("web-server")
 
 # Multiple output formats
-with Diagram("Azure Multi-Output", outformat=["jpg", "png", "dot"], show=False):
+with Diagram("Azure Multi-Output", outformat=["svg", "png"], show=False):
     VM("web-server")
 
 # Custom attributes
@@ -296,7 +290,7 @@ with Diagram("Three-tier Web App", show=False):
 - Azure resources are in `diagrams.azure.*`
 ### Output Formats
 - Default: PNG
-- Supported: PNG, JPG, SVG, PDF, DOT
+- Supported: PNG, SVG
 - Use list for multiple outputs: `outformat=["png", "svg"]`
 
 ### Direction Options
@@ -992,7 +986,7 @@ with Diagram("Azure Microservices", show=False, direction="LR"):
 
 ## Output Formats
 
-Supported formats: `png` (default), `jpg`, `svg`, `pdf`, `dot`
+Supported formats: `png` (default), `svg`
 
 ```python
 # Single format

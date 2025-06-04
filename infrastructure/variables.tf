@@ -4,11 +4,6 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
-variable "s3_bucket_name" {
-  description = "Name of the S3 bucket for storing diagrams."
-  type        = string
-}
-
 variable "s3_bucket_name_uploads" {
   description = "Name of the S3 bucket for storing uploaded diagrams."
   type        = string

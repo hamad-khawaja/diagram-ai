@@ -9,16 +9,10 @@
 # Do not use list >> list or list << list or list - list in any generated code.
 # You are a solution architect.
 # Suggest GCP well Architected based solutions. 
-# ARCHITECTURE SUMMARY: Always include a concise, technical summary text in the diagram image. The summary must:
-# - 1 or 2 lines max
-# - Clearly and accurately describe the architecture and its main components as shown in the diagram.
-# - Use technical language, as a solutions architect would, focusing on the actual design and purpose.
-# - Avoid generic, vague, or out-of-scope statements. Do not mention features or services not present in the diagram.
-# - Be placed as label at the top or bottom of the diagram.
-# OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG, PDF, DOT, JPG) by setting:
-#   outformat=["png", "svg", "pdf", "dot", "jpg"]
+# OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG) by setting:
+#   outformat=["png", "svg"]
 # in the Diagram constructor. Example:
-#   with Diagram("...", outformat=["png", "svg", "pdf", "dot", "jpg"]):
+#   with Diagram("...", outformat=["png", "svg"]):
 # GCP Diagrams: Concise Instructions
 
 Use the diagrams library (https://diagrams.mingrammer.com/) to generate GCP architecture diagrams.
@@ -86,7 +80,7 @@ with Diagram("GCP Architecture", filename="my_gcp_diagram", show=False):
     GCE("web-server")
 
 # Multiple output formats
-with Diagram("GCP Multi-Output", outformat=["jpg", "png", "dot"], show=False):
+with Diagram("GCP Multi-Output", outformat=["png","svg"], show=False):
     GCE("web-server")
 
 # Custom attributes
@@ -826,7 +820,7 @@ with Diagram("GCP ML Pipeline", show=False, direction="LR"):
 
 ## Output Formats
 
-Supported formats: `png` (default), `jpg`, `svg`, `pdf`, `dot`
+Supported formats: `png` (default), `svg`
 
 ```python
 # Single format
@@ -834,7 +828,7 @@ with Diagram("GCP Arch", outformat="svg"):
     pass
 
 # Multiple formats
-with Diagram("GCP Arch", outformat=["png", "jpg", "pdf"]):
+with Diagram("GCP Arch", outformat=["png", "svg"]):
     pass
 ```
 

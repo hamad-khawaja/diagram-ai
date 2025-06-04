@@ -1,4 +1,12 @@
+# Standard library imports
+import os
 import threading
+import re
+
+# Third-party imports
+import requests
+from openai import OpenAI
+
 # Gemini model selection (auto-detect best available)
 def get_best_gemini_model():
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -52,14 +60,12 @@ def generate_explanation_openai(prompt):
             {"role": "user", "content": prompt}
         ],
         temperature=0,
-        max_tokens=512,
-        top_p=1
+        max_tokens=15120,
+        top_p=0.7
     )
     return response.choices[0].message.content.strip()
 
 
-import requests
-from openai import OpenAI
 def generate_code_gemini(description, instructions):
     print("[DEBUG] Entered generate_code_gemini")
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -119,8 +125,6 @@ def generate_explanation_gemini(prompt):
     content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
     return content.strip()
 
-import os
-from openai import OpenAI
 
 def generate_code_openai(description, instructions):
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -142,7 +146,6 @@ def generate_code_openai(description, instructions):
     return extract_python_code(content)
 
 def extract_python_code(content):
-    import re
     # Try to extract code from triple backticks (with or without python)
     match = re.search(r"```python(.*?)```", content, re.DOTALL | re.IGNORECASE)
     if match:
@@ -161,4 +164,9 @@ def extract_python_code(content):
     else:
         # If no valid code line found, return empty string
         code = ''
+
+    # --- Post-process: Remove any Diagram.add_label calls (not supported by diagrams lib) ---
+    code = re.sub(r"Diagram\\.add_label\\s*\\(.*?\\)\\s*", "", code)
+    # Optionally, remove empty lines left by this
+    code = '\n'.join([l for l in code.splitlines() if l.strip()])
     return code

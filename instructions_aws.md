@@ -9,20 +9,13 @@
 # Do not use list >> list or list << list or list - list in any generated code.
 # You are a solution architect.
 # Suggest AWS well Architected framework based solutions. 
-# ARCHITECTURE SUMMARY: Always include a concise, technical summary text in the diagram image. The summary must:
-# - 1 or 2 lines max
-# - Clearly and accurately describe the architecture and its main components as shown in the diagram.
-# - Use technical language, as a solutions architect would, focusing on the actual design and purpose.
-# - Avoid generic, vague, or out-of-scope statements. Do not mention features or services not present in the diagram.
-# - Be placed as label at the top or bottom of the diagram.
-# - When representing VPC peering in AWS diagrams, always use the VPCPeering class from diagrams.aws.network.
 # - Example: from diagrams.aws.network import VPCPeering
 # Example: For a multi-region AWS web application, the summary could be:
 #   "This diagram illustrates a highly available, multi-region AWS architecture with Route 53 for DNS-based traffic distribution, Application Load Balancers and EC2 instances for the web and app tiers, RDS for database replication, and S3 for cross-region storage replication."
-# OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG, PDF, DOT, JPG) by setting:
-#   outformat=["png", "svg", "pdf", "dot", "jpg"]
+# OUTPUT FORMATS: Always generate diagrams in all formats (PNG, SVG ) by setting:
+#   outformat=["png", "svg"]
 # in the Diagram constructor. Example:
-#   with Diagram("...", outformat=["png", "svg", "pdf", "dot", "jpg"]):
+#   with Diagram("...", outformat=["png", "svg"]):
 # WARNING: Only use import statements and resource classes exactly as shown in the AWS import list below. Do NOT use any other import paths or class names. If you are unsure, copy-paste from the list.
 #
 # Common Mistakes:
@@ -145,7 +138,7 @@ with Diagram("AWS Architecture", filename="my_aws_diagram", show=False):
     EC2("web-server")
 
 # Multiple output formats
-with Diagram("AWS Multi-Output", outformat=["jpg", "png", "dot"], show=False):
+with Diagram("AWS Multi-Output", outformat=["svg", "png"], show=False):
     EC2("web-server")
 
 # Custom attributes
@@ -1229,7 +1222,7 @@ with Diagram("AWS IoT Architecture", show=False, direction="LR"):
 
 ## Output Formats
 
-Supported formats: `png` (default), `jpg`, `svg`, `pdf`, `dot`
+Supported formats: `png` (default),`svg`
 
 ```python
 # Single format
@@ -1237,7 +1230,7 @@ with Diagram("AWS Arch", outformat="svg"):
     pass
 
 # Multiple formats
-with Diagram("AWS Arch", outformat=["png", "jpg", "pdf"]):
+with Diagram("AWS Arch", outformat=["png", "svg"]):
     pass
 ```
 
