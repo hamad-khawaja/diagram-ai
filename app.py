@@ -36,8 +36,8 @@ S3_BUCKET = os.environ.get('S3_BUCKET')
 if not S3_BUCKET:
     raise RuntimeError("S3_BUCKET environment variable is not set")
 s3_client = boto3.client("s3")
-UPLOAD_FOLDER = 'diagrams/'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Remove global UPLOAD_FOLDER. Use per-request temp directories instead.
 
 # ===================
 # Logging Setup
@@ -189,6 +189,7 @@ def generate_diagram():
         'azure': 'instructions_azure.md',
         'gcp': 'instructions_gcp.md'
     }
+    provider_prefix = provider if provider in provider_map else 'unknown'
     instructions_file = provider_map.get(provider)
     if not instructions_file:
         return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400)
@@ -233,6 +234,13 @@ def generate_diagram():
         user_msg = code.strip().splitlines()[0] if code.strip() else "The model could not generate valid code for your request."
         return error_response(f"The model could not generate valid code for your request: {user_msg}", 422)
 
+    # --- Per-request temp directory, prefixed by provider ---
+    import tempfile, shutil
+    temp_uuid = str(uuid.uuid4())
+    temp_dir_name = f"{provider_prefix}-{temp_uuid}"
+    UPLOAD_FOLDER = os.path.join('diagrams', temp_dir_name)
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
     # Save raw code
     start_save_raw = time.time()
     raw_code_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram_raw.py')
@@ -241,6 +249,7 @@ def generate_diagram():
             f.write(code)
         logger.info(f"Raw code saved to {raw_code_path}")
     except Exception as e:
+        shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
         return error_response('Failed to save raw code', 500)
     timings['save_raw_code'] = time.time() - start_save_raw
 
@@ -269,6 +278,7 @@ def generate_diagram():
             f.write(code)
         logger.info(f"Sanitized code saved to {sanitized_code_path}")
     except Exception as e:
+        shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
         return error_response('Failed to save sanitized code', 500)
     timings['save_sanitized_code'] = time.time() - start_save_sanitized
 
@@ -433,7 +443,7 @@ def generate_diagram():
 
     # --- S3 Upload Logic (after all outputs and variables are defined) ---
     start_s3 = time.time()
-    s3_folder = str(uuid.uuid4())
+    s3_folder = temp_dir_name  # Use the same provider-prefixed folder name for S3
     uploaded_files = {}
     # Upload all files in UPLOAD_FOLDER and subfolders, but flatten the S3 structure
     for root, dirs, files in os.walk(UPLOAD_FOLDER):
@@ -448,37 +458,51 @@ def generate_diagram():
     uploaded_files['s3_folder'] = s3_folder
     timings['s3_upload'] = time.time() - start_s3
 
-    if base_names:
-        # Map file extensions to S3 URLs for diagram_files
-        urls = {}
-        for base in base_names:
-            for ext in output_formats:
-                fname = f"{base}.{ext}"
-                if fname in uploaded_files:
-                    urls[ext] = uploaded_files[fname]
-        # Use S3 URLs for code and markdown files
-        raw_code_url = uploaded_files.get('generated_diagram_raw.py')
-        sanitized_code_url = uploaded_files.get('generated_diagram.py')
-        explanation_md_url = uploaded_files.get('generated_diagram.md')
-        timings['total'] = time.time() - start_total
-        # Log timings before returning
-        logger.info(f"TIMINGS: {json.dumps(timings, indent=2)}")
-        return jsonify({
-            'diagram_files': urls,  # S3 URLs for images and outputs
-            'raw_code_url': raw_code_url,
-            'sanitized_code_url': sanitized_code_url,
-            'explanation': explanation,
-            'explanation_md_url': explanation_md_url,
-            'uploaded_files': uploaded_files  # all S3 URLs for all files
-        })
+    try:
+        if base_names:
+            # Map file extensions to S3 URLs for diagram_files
+            urls = {}
+            for base in base_names:
+                for ext in output_formats:
+                    fname = f"{base}.{ext}"
+                    if fname in uploaded_files:
+                        urls[ext] = uploaded_files[fname]
+            # Use S3 URLs for code and markdown files
+            raw_code_url = uploaded_files.get('generated_diagram_raw.py')
+            sanitized_code_url = uploaded_files.get('generated_diagram.py')
+            explanation_md_url = uploaded_files.get('generated_diagram.md')
+            timings['total'] = time.time() - start_total
+            # Log timings before returning
+            logger.info(f"TIMINGS: {json.dumps(timings, indent=2)}")
+            return jsonify({
+                'diagram_files': urls,  # S3 URLs for images and outputs
+                'raw_code_url': raw_code_url,
+                'sanitized_code_url': sanitized_code_url,
+                'explanation': explanation,
+                'explanation_md_url': explanation_md_url,
+                'uploaded_files': uploaded_files  # all S3 URLs for all files
+            })
 
-    # Final fallback: should never be reached, but ensures a response is always sent
-    return error_response('Unknown server error', 500)
+        # Final fallback: should never be reached, but ensures a response is always sent
+        return error_response('Unknown server error', 500)
+    finally:
+        # Always clean up the temp directory after processing
+        try:
+            shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
+            logger.info(f"Cleaned up temp directory: {UPLOAD_FOLDER}")
+        except Exception as e:
+            logger.warning(f"Failed to clean up temp directory {UPLOAD_FOLDER}: {e}")
 
 
 def upload_file_to_s3(local_path, s3_folder, filename):
     s3_key = f"{s3_folder}/{filename}"
     s3_client.upload_file(local_path, S3_BUCKET, s3_key)
+    # Delete the local file after upload
+    try:
+        os.remove(local_path)
+        logger.info(f"Deleted local file after upload: {local_path}")
+    except Exception as e:
+        logger.warning(f"Failed to delete local file {local_path}: {e}")
     return s3_key
 
 def generate_presigned_url(s3_key, expires_in=3600):
