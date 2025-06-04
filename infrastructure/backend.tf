@@ -1,8 +1,8 @@
 terraform {
   backend "s3" {
     # Fill in your S3 backend configuration here
-    bucket = var.s3_bucket_name
+    bucket = "diagramstf-35956872132"
     key    = "terraform.tfstate"
-    region = var.aws_region
+    region = "us-east-1"
   }
 }
