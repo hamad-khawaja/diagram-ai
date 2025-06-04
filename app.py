@@ -495,4 +495,4 @@ def generate_presigned_url(s3_key, expires_in=3600):
 
 
 if __name__ == '__main__':
-    app.run(port=5050)
+    app.run(host="0.0.0.0", port=5050)
