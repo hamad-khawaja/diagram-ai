@@ -109,6 +109,15 @@ def explain_diagram():
         return jsonify({'explanation': explanation})
     except Exception as e:
         return error_response(f'Failed to generate explanation: {str(e)}', 500)
+
+@app.route('/health', methods=['GET'])
+def health():
+    return 'OK', 200
+
+@app.route('/')
+def index():
+    return 'OK', 200
+
 import os
 import json
 import logging
