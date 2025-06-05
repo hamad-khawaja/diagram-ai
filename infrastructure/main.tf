@@ -84,21 +84,25 @@ resource "aws_apigatewayv2_api" "diagram_http_api" {
   }
 }
 
-# Get the public IP of the EC2 instance
-data "aws_instance" "diagram_ec2" {
-  instance_id = aws_instance.diagram_ec2.id
-}
+# --- The following block is invalid with ASG, as there is no single instance to reference ---
+# data "aws_instance" "diagram_ec2" {
+#   instance_id = aws_instance.diagram_ec2.id
+# }
 
-# Integration: Forward to EC2 public endpoint
-resource "aws_apigatewayv2_integration" "diagram_ec2_integration" {
-  api_id           = aws_apigatewayv2_api.diagram_http_api.id
-  integration_type = "HTTP_PROXY"
-  integration_method = "ANY"
-  integration_uri  = "http://${data.aws_instance.diagram_ec2.public_ip}:5050/{proxy}"
-  request_parameters = {
-    "overwrite:path" = "$request.path"
-  }
-}
+# --- With ASG, you need to use a Load Balancer (ALB/NLB) in front of your instances ---
+# Update the integration_uri to point to the ALB DNS name instead of a single instance IP.
+# Example (replace with your ALB resource if/when you add it):
+# integration_uri  = "http://${aws_lb.diagram_alb.dns_name}:5050/{proxy}"
+
+# resource "aws_apigatewayv2_integration" "diagram_ec2_integration" {
+#   api_id           = aws_apigatewayv2_api.diagram_http_api.id
+#   integration_type = "HTTP_PROXY"
+#   integration_method = "ANY"
+#   integration_uri  = "http://${aws_lb.diagram_alb.dns_name}:5050/{proxy}"
+#   request_parameters = {
+#     "overwrite:path" = "$request.path"
+#   }
+# }
 
 # /generate route
 
@@ -142,15 +146,6 @@ resource "aws_apigatewayv2_authorizer" "diagram_jwt_auth" {
   }
 }
 
-# --- Require JWT Authorizer for all routes ---
-resource "aws_apigatewayv2_route" "proxy" {
-  api_id    = aws_apigatewayv2_api.diagram_http_api.id
-  route_key = "ANY /{proxy+}"
-  target    = "integrations/${aws_apigatewayv2_integration.diagram_ec2_integration.id}"
-  authorizer_id = aws_apigatewayv2_authorizer.diagram_jwt_auth.id
-  authorization_type = "JWT"
-}
-
 # Default stage (auto-deploy)
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.diagram_http_api.id
@@ -168,7 +163,7 @@ output "http_api_endpoint" {
 }
 # Create a new VPC
 resource "aws_vpc" "diagrams_vpc" {
-  cidr_block = "10.0.0.0/28" # 16 IPs, 11 usable
+  cidr_block = "10.0.0.0/16" # 65,536 IPs
   enable_dns_support   = true
   enable_dns_hostnames = true
   tags = {
@@ -176,16 +171,30 @@ resource "aws_vpc" "diagrams_vpc" {
   }
 }
 
-# Create a public subnet in the VPC
+# Create a public subnet in the VPC (AZ a)
 resource "aws_subnet" "diagrams_public_subnet" {
   vpc_id                  = aws_vpc.diagrams_vpc.id
-  cidr_block              = "10.0.0.0/28" # 16 IPs, 11 usable
+  cidr_block              = "10.0.1.0/24"
   map_public_ip_on_launch = true
-  availability_zone       = "us-east-1a"
+  availability_zone       = data.aws_availability_zones.available.names[0]
   tags = {
-    Name = "diagrams-public-subnet"
+    Name = "diagrams-public-subnet-a"
   }
 }
+
+# Create a second public subnet in the VPC (AZ b)
+resource "aws_subnet" "diagrams_public_subnet_b" {
+  vpc_id                  = aws_vpc.diagrams_vpc.id
+  cidr_block              = "10.0.2.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = data.aws_availability_zones.available.names[1]
+  tags = {
+    Name = "diagrams-public-subnet-b"
+  }
+}
+
+# --- Data source for AZs (if not already present) ---
+data "aws_availability_zones" "available" {}
 
 # Create an internet gateway for the VPC
 resource "aws_internet_gateway" "diagrams_igw" {
@@ -212,6 +221,7 @@ resource "aws_route_table_association" "diagrams_public_assoc" {
   subnet_id      = aws_subnet.diagrams_public_subnet.id
   route_table_id = aws_route_table.diagrams_public_rt.id
 }
+
 # Terraform configuration for diagram-ai infrastructure
 
 resource "aws_s3_bucket" "uploads" {
@@ -227,41 +237,137 @@ output "uploads_bucket_arn" {
 }
 
 
-resource "aws_instance" "diagram_ec2" {
-  ami           = "ami-0c94855ba95c71c99" # Amazon Linux 2 AMI (example, update as needed)
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.diagrams_public_subnet.id
-  vpc_security_group_ids = [aws_security_group.diagrams_https.id]
-  iam_instance_profile = aws_iam_instance_profile.diagrams_ec2_profile.name
-  tags = {
-    Name = "diagram-ec2"
+# --- Launch Template for Auto Scaling Group ---
+resource "aws_launch_template" "diagram_lt" {
+  name_prefix   = "diagram-lt-"
+  image_id      = "ami-0c94855ba95c71c99" # Amazon Linux 2 AMI (update as needed)
+  instance_type = "t3.large"
+  iam_instance_profile {
+    name = aws_iam_instance_profile.diagrams_ec2_profile.name
   }
-  user_data = <<-EOF
+  vpc_security_group_ids = [aws_security_group.diagrams_https.id]
+  user_data = base64encode(<<-EOF
     #!/bin/bash
-    sudo yum update -y
-    sudo amazon-linux-extras install docker -y
-    sudo systemctl enable docker
-    sudo systemctl start docker
-    sleep 10
+    set -euxo pipefail
+    exec > /var/log/user-data.log 2>&1
+
+    yum update -y
+    amazon-linux-extras install docker -y
+    systemctl enable docker
+    systemctl start docker
+    usermod -a -G docker ec2-user
+
+    # Wait for Docker to be up
+    for i in {1..10}; do
+      if systemctl is-active --quiet docker; then
+        echo "Docker is running."
+        break
+      fi
+      echo "Waiting for Docker to start... ($i)"
+      sleep 3
+    done
 
     # Authenticate Docker to ECR (modern method)
-    aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 016683085931.dkr.ecr.us-east-1.amazonaws.com
+    if ! aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 016683085931.dkr.ecr.us-east-1.amazonaws.com; then
+      echo "[WARN] Docker ECR login failed, continuing anyway."
+    fi
 
     # Fetch secrets from SSM Parameter Store
-    OPENAI_API_KEY=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/openai_api_key" --with-decryption --query "Parameter.Value" --output text)
-    S3_BUCKET=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/s3_bucket" --query "Parameter.Value" --output text)
-    LLM_PROVIDER=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/llm_provider" --query "Parameter.Value" --output text)
+    export OPENAI_API_KEY=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/openai_api_key" --with-decryption --query "Parameter.Value" --output text || true)
+    export S3_BUCKET=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/s3_bucket" --query "Parameter.Value" --output text || true)
+    export LLM_PROVIDER=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/llm_provider" --query "Parameter.Value" --output text || true)
 
-    # Pull and run your image with env vars
-    sudo docker pull 016683085931.dkr.ecr.us-east-1.amazonaws.com/diagrams:latest
-    sudo docker run -d \
+    # Pull and run your image with env vars (do not fail if pull/run fails)
+    docker pull 016683085931.dkr.ecr.us-east-1.amazonaws.com/diagrams:latest || echo "[WARN] Docker image pull failed, container will not start."
+    docker run -d \
       -p 5050:5050 \
       -e OPENAI_API_KEY="$OPENAI_API_KEY" \
       -e S3_BUCKET="$S3_BUCKET" \
       -e LLM_PROVIDER="$LLM_PROVIDER" \
-      016683085931.dkr.ecr.us-east-1.amazonaws.com/diagrams:latest
+      016683085931.dkr.ecr.us-east-1.amazonaws.com/diagrams:latest || echo "[WARN] Docker run failed."
   EOF
+  )
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "diagram-ec2"
+    }
+  }
 }
+
+# --- Auto Scaling Group ---
+resource "aws_autoscaling_group" "diagram_asg" {
+  name                      = "diagram-asg"
+  max_size                  = 2
+  min_size                  = 1
+  desired_capacity          = 1
+  vpc_zone_identifier       = [aws_subnet.diagrams_public_subnet.id, aws_subnet.diagrams_public_subnet_b.id]
+  launch_template {
+    id      = aws_launch_template.diagram_lt.id
+    version = "$Latest"
+  }
+  target_group_arns         = [aws_lb_target_group.diagram_tg.arn]
+  health_check_type         = "EC2"
+  health_check_grace_period = 60
+  tag {
+    key                 = "Name"
+    value               = "diagram-ec2"
+    propagate_at_launch = true
+  }
+}
+
+# --- Comment out standalone EC2 instance (now managed by ASG) ---
+# resource "aws_instance" "diagram_ec2" {
+#   ami           = "ami-0c94855ba95c71c99" # Amazon Linux 2 AMI (example, update as needed)
+#   instance_type = "t2.micro"
+#   subnet_id     = aws_subnet.diagrams_public_subnet.id
+#   vpc_security_group_ids = [aws_security_group.diagrams_https.id]
+#   iam_instance_profile = aws_iam_instance_profile.diagrams_ec2_profile.name
+#   tags = {
+#     Name = "diagram-ec2"
+#   }
+#   user_data = <<-EOF
+#     #!/bin/bash
+#
+#     echo "Installing Docker..."
+#     yum update -y
+#     amazon-linux-extras install docker -y
+#     systemctl enable docker
+#     systemctl start docker
+#     usermod -a -G docker ec2-user
+#
+#     # Now proceed with ECR and container setup
+#     echo "Authenticating with ECR..."
+#     if aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 016683085931.dkr.ecr.us-east-1.amazonaws.com; then
+#         echo "ECR login successful"
+#     else
+#         echo "[ERROR] ECR login failed"
+#         exit 1
+#     fi
+#
+#     # Fetch secrets from SSM Parameter Store
+#     echo "Fetching SSM parameters..."
+#     export OPENAI_API_KEY=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/openai_api_key" --with-decryption --query "Parameter.Value" --output text)
+#     export S3_BUCKET=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/s3_bucket" --query "Parameter.Value" --output text)
+#     export LLM_PROVIDER=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/llm_provider" --query "Parameter.Value" --output text)
+#
+#     # Pull and run container
+#     echo "Pulling Docker image..."
+#     docker pull 016683085931.dkr.ecr.us-east-1.amazonaws.com/diagrams:latest
+#
+#     echo "Starting container..."
+#     docker run -d \
+#       -p 5050:5050 \
+#       -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+#       -e S3_BUCKET="$S3_BUCKET" \
+#       -e LLM_PROVIDER="$LLM_PROVIDER" \
+#       016683085931.dkr.ecr.us-east-1.amazonaws.com/diagrams:latest
+#
+#     echo "Container started successfully!"
+#     docker ps
+#     echo "Userdata script completed at $(date)"
+#   EOF
+# }
 resource "aws_iam_instance_profile" "diagrams_ec2_profile" {
   name = "diagrams-ec2"
   role = aws_iam_role.diagrams_ec2_role.name
@@ -280,4 +386,78 @@ data "aws_iam_policy_document" "ec2_assume_role_policy" {
       identifiers = ["ec2.amazonaws.com"]
     }
   }
+}
+
+# --- ALB Security Group ---
+resource "aws_security_group" "alb_sg" {
+  name        = "diagram-alb-sg"
+  description = "Allow HTTP/HTTPS to ALB"
+  vpc_id      = aws_vpc.diagrams_vpc.id
+
+  ingress {
+    from_port   = 5050
+    to_port     = 5050
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# --- Application Load Balancer ---
+resource "aws_lb" "diagram_alb" {
+  name               = "diagram-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_sg.id]
+  subnets            = [aws_subnet.diagrams_public_subnet.id, aws_subnet.diagrams_public_subnet_b.id]
+}
+
+# --- Target Group for ASG ---
+resource "aws_lb_target_group" "diagram_tg" {
+  name     = "diagram-tg"
+  port     = 5050
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.diagrams_vpc.id
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    matcher             = "200-499"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+# --- ALB Listener ---
+resource "aws_lb_listener" "diagram_listener" {
+  load_balancer_arn = aws_lb.diagram_alb.arn
+  port              = 5050
+  protocol          = "HTTP"
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.diagram_tg.arn
+  }
+}
+
+# --- API Gateway Integration for ALB ---
+resource "aws_apigatewayv2_integration" "alb_integration" {
+  api_id              = aws_apigatewayv2_api.diagram_http_api.id
+  integration_type    = "HTTP_PROXY"
+  integration_method  = "ANY"
+  integration_uri     = "http://${aws_lb.diagram_alb.dns_name}:5050/{proxy}"
+}
+
+# --- API Gateway Route for ALB ---
+resource "aws_apigatewayv2_route" "proxy" {
+  api_id    = aws_apigatewayv2_api.diagram_http_api.id
+  route_key = "ANY /{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.alb_integration.id}"
+  authorizer_id = aws_apigatewayv2_authorizer.diagram_jwt_auth.id
+  authorization_type = "JWT"
 }
