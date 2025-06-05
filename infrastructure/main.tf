@@ -84,28 +84,6 @@ resource "aws_apigatewayv2_api" "diagram_http_api" {
   }
 }
 
-# --- The following block is invalid with ASG, as there is no single instance to reference ---
-# data "aws_instance" "diagram_ec2" {
-#   instance_id = aws_instance.diagram_ec2.id
-# }
-
-# --- With ASG, you need to use a Load Balancer (ALB/NLB) in front of your instances ---
-# Update the integration_uri to point to the ALB DNS name instead of a single instance IP.
-# Example (replace with your ALB resource if/when you add it):
-# integration_uri  = "http://${aws_lb.diagram_alb.dns_name}:5050/{proxy}"
-
-# resource "aws_apigatewayv2_integration" "diagram_ec2_integration" {
-#   api_id           = aws_apigatewayv2_api.diagram_http_api.id
-#   integration_type = "HTTP_PROXY"
-#   integration_method = "ANY"
-#   integration_uri  = "http://${aws_lb.diagram_alb.dns_name}:5050/{proxy}"
-#   request_parameters = {
-#     "overwrite:path" = "$request.path"
-#   }
-# }
-
-# /generate route
-
 # --- Cognito User Pool ---
 resource "aws_cognito_user_pool" "diagram_users" {
   name = "diagram-users"
@@ -146,6 +124,13 @@ resource "aws_apigatewayv2_authorizer" "diagram_jwt_auth" {
   }
 }
 
+
+# CloudWatch Log Group for API Gateway access logs
+resource "aws_cloudwatch_log_group" "apigw_access_logs" {
+  name              = "/aws/apigateway/diagram-http-api"
+  retention_in_days = 14
+}
+
 # Default stage (auto-deploy)
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.diagram_http_api.id
@@ -155,7 +140,21 @@ resource "aws_apigatewayv2_stage" "default" {
     throttling_burst_limit = 100
     throttling_rate_limit  = 50
   }
-  # No CORS or access log settings here; CORS is set per route for HTTP API
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.apigw_access_logs.arn
+    format = jsonencode({
+      requestId               = "$context.requestId"
+      ip                      = "$context.identity.sourceIp"
+      requestTime             = "$context.requestTime"
+      httpMethod              = "$context.httpMethod"
+      routeKey                = "$context.routeKey"
+      status                  = "$context.status"
+      protocol                = "$context.protocol"
+      responseLength          = "$context.responseLength"
+      integrationErrorMessage = "$context.integrationErrorMessage"
+    })
+  }
+  # No CORS settings here; CORS is set per route for HTTP API
 }
 
 output "http_api_endpoint" {
@@ -241,7 +240,7 @@ output "uploads_bucket_arn" {
 resource "aws_launch_template" "diagram_lt" {
   name_prefix   = "diagram-lt-"
   image_id      = "ami-0c94855ba95c71c99" # Amazon Linux 2 AMI (update as needed)
-  instance_type = "t3.large"
+  instance_type = "t2.micro"
   iam_instance_profile {
     name = aws_iam_instance_profile.diagrams_ec2_profile.name
   }
@@ -299,8 +298,8 @@ resource "aws_launch_template" "diagram_lt" {
 resource "aws_autoscaling_group" "diagram_asg" {
   name                      = "diagram-asg"
   max_size                  = 2
-  min_size                  = 1
-  desired_capacity          = 1
+  min_size                  = 2
+  desired_capacity          = 2
   vpc_zone_identifier       = [aws_subnet.diagrams_public_subnet.id, aws_subnet.diagrams_public_subnet_b.id]
   launch_template {
     id      = aws_launch_template.diagram_lt.id
@@ -316,58 +315,6 @@ resource "aws_autoscaling_group" "diagram_asg" {
   }
 }
 
-# --- Comment out standalone EC2 instance (now managed by ASG) ---
-# resource "aws_instance" "diagram_ec2" {
-#   ami           = "ami-0c94855ba95c71c99" # Amazon Linux 2 AMI (example, update as needed)
-#   instance_type = "t2.micro"
-#   subnet_id     = aws_subnet.diagrams_public_subnet.id
-#   vpc_security_group_ids = [aws_security_group.diagrams_https.id]
-#   iam_instance_profile = aws_iam_instance_profile.diagrams_ec2_profile.name
-#   tags = {
-#     Name = "diagram-ec2"
-#   }
-#   user_data = <<-EOF
-#     #!/bin/bash
-#
-#     echo "Installing Docker..."
-#     yum update -y
-#     amazon-linux-extras install docker -y
-#     systemctl enable docker
-#     systemctl start docker
-#     usermod -a -G docker ec2-user
-#
-#     # Now proceed with ECR and container setup
-#     echo "Authenticating with ECR..."
-#     if aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 016683085931.dkr.ecr.us-east-1.amazonaws.com; then
-#         echo "ECR login successful"
-#     else
-#         echo "[ERROR] ECR login failed"
-#         exit 1
-#     fi
-#
-#     # Fetch secrets from SSM Parameter Store
-#     echo "Fetching SSM parameters..."
-#     export OPENAI_API_KEY=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/openai_api_key" --with-decryption --query "Parameter.Value" --output text)
-#     export S3_BUCKET=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/s3_bucket" --query "Parameter.Value" --output text)
-#     export LLM_PROVIDER=$(aws ssm get-parameter --region us-east-1 --name "/diagram-ai/llm_provider" --query "Parameter.Value" --output text)
-#
-#     # Pull and run container
-#     echo "Pulling Docker image..."
-#     docker pull 016683085931.dkr.ecr.us-east-1.amazonaws.com/diagrams:latest
-#
-#     echo "Starting container..."
-#     docker run -d \
-#       -p 5050:5050 \
-#       -e OPENAI_API_KEY="$OPENAI_API_KEY" \
-#       -e S3_BUCKET="$S3_BUCKET" \
-#       -e LLM_PROVIDER="$LLM_PROVIDER" \
-#       016683085931.dkr.ecr.us-east-1.amazonaws.com/diagrams:latest
-#
-#     echo "Container started successfully!"
-#     docker ps
-#     echo "Userdata script completed at $(date)"
-#   EOF
-# }
 resource "aws_iam_instance_profile" "diagrams_ec2_profile" {
   name = "diagrams-ec2"
   role = aws_iam_role.diagrams_ec2_role.name

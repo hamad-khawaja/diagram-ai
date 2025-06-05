@@ -1,21 +1,26 @@
-FROM python:3.9-slim
+FROM python:3.9-alpine as builder
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y graphviz && \
-    rm -rf /var/lib/apt/lists/*
+# Install build dependencies
+RUN apk add --no-cache gcc musl-dev libffi-dev build-base graphviz-dev
 
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip && \
+    pip install --prefix=/install --no-cache-dir -r requirements.txt
 
+# Copy only installed packages
+FROM python:3.9-alpine
+
+RUN apk add --no-cache graphviz
+
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
 COPY . .
 
-# Expose both frontend and backend ports
 EXPOSE 8501 8080
 
-# Start both services using a shell script
 COPY start.sh .
 RUN chmod +x start.sh
 
