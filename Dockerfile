@@ -1,21 +1,20 @@
-FROM python:3.9-slim
+FROM python:3.9-alpine
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y graphviz && \
-    rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies
+RUN apk add --no-cache graphviz cairo-dev pango-dev ttf-freefont
+
+# Install build dependencies, install Python deps, then remove build deps
+COPY requirements.txt /tmp/requirements.txt
+RUN apk add --no-cache --virtual .build-deps gcc musl-dev libffi-dev build-base linux-headers g++ \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && apk del .build-deps
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
 COPY . .
 
-# Expose both frontend and backend ports
-EXPOSE 8501 8080
+EXPOSE 5050
 
-# Start both services using a shell script
 COPY start.sh .
 RUN chmod +x start.sh
 
