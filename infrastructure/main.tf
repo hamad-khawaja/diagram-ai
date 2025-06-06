@@ -240,7 +240,7 @@ output "uploads_bucket_arn" {
 resource "aws_launch_template" "diagram_lt" {
   name_prefix   = "diagram-lt-"
   image_id      = "ami-0c94855ba95c71c99" # Amazon Linux 2 AMI (update as needed)
-  instance_type = "t4g.large"
+  instance_type = "t2.micro"
   iam_instance_profile {
     name = aws_iam_instance_profile.diagrams_ec2_profile.name
   }
