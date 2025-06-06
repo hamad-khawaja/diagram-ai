@@ -297,9 +297,9 @@ resource "aws_launch_template" "diagram_lt" {
 # --- Auto Scaling Group ---
 resource "aws_autoscaling_group" "diagram_asg" {
   name                      = "diagram-asg"
-  max_size                  = 2
-  min_size                  = 2
-  desired_capacity          = 2
+  max_size                  = 1
+  min_size                  = 1
+  desired_capacity          = 1
   vpc_zone_identifier       = [aws_subnet.diagrams_public_subnet.id, aws_subnet.diagrams_public_subnet_b.id]
   launch_template {
     id      = aws_launch_template.diagram_lt.id
