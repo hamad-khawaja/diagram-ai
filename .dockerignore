@@ -1,0 +1,24 @@
+# Ignore infrastructure folder
+infrastructure/
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore logs
+*.log
+
+# Ignore git
+.git/
+
+# Ignore Terraform files
+*.tf
+*.tfstate
+*.tfvars
+.terraform/
+
+# Ignore Python virtual environments
+.venv/
+# Ignore other common files
+# *.md  # Commented out to allow Markdown files like instructions_aws.md
+*.DS_Store
