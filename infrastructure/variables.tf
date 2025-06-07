@@ -31,4 +31,39 @@ variable "openai_api_key" {
   sensitive   = true  # Mark as sensitive to prevent it from showing in logs
 }
 
-# No new variables needed for API Gateway
+# Cognito variables
+variable "cognito_callback_urls" {
+  description = "Callback URLs for the Cognito user pool client"
+  type        = list(string)
+  default     = ["https://example.com/callback"]
+}
+
+variable "cognito_logout_urls" {
+  description = "Logout URLs for the Cognito user pool client"
+  type        = list(string)
+  default     = ["https://example.com/logout"]
+}
+
+variable "cognito_domain_prefix" {
+  description = "Domain prefix for the Cognito hosted UI"
+  type        = string
+  default     = "diagram-ai"
+}
+
+variable "use_existing_cognito" {
+  description = "Set to true to use an existing Cognito User Pool"
+  type        = bool
+  default     = false
+}
+
+variable "existing_cognito_user_pool_id" {
+  description = "ID of an existing Cognito User Pool (if use_existing_cognito is true)"
+  type        = string
+  default     = ""
+}
+
+variable "existing_cognito_user_pool_client_id" {
+  description = "ID of an existing Cognito User Pool Client (if use_existing_cognito is true)"
+  type        = string
+  default     = ""
+}

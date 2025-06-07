@@ -28,10 +28,15 @@ resource "aws_apigatewayv2_integration" "lambda_integration" {
 }
 
 # Route for ANY /{proxy+}
-resource "aws_apigatewayv2_route" "proxy_route" {
+resource "aws_apigatewayv2_route" "default_route" {
   api_id    = aws_apigatewayv2_api.http_api.id
   route_key = "$default"
   target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+  
+  # By default, require authentication for all endpoints
+  # Specific public routes are defined separately
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito_authorizer.id
 }
 
 # API Gateway stage
