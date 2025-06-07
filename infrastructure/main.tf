@@ -6,6 +6,14 @@ terraform {
     }
   }
   required_version = ">= 1.3.0"
+  
+  backend "s3" {
+    bucket = "diagramstf-35956872132"
+    key    = "terraform/diagram-ai/terraform.tfstate"
+    region = "us-east-1"
+    # Uncomment the line below if you have DynamoDB table for state locking
+    # dynamodb_table = "terraform-state-lock"
+  }
 }
 
 provider "aws" {
