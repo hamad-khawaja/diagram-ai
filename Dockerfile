@@ -1,27 +1,17 @@
-FROM python:3.9-alpine as builder
 
-# Install build dependencies
-RUN apk add --no-cache gcc musl-dev libffi-dev build-base graphviz-dev
+# AWS Lambda Python 3.9 base image
+FROM public.ecr.aws/lambda/python:3.9
 
-WORKDIR /app
+# Install system dependencies
+RUN yum install -y graphviz && yum clean all
+
+WORKDIR /var/task
 
 COPY requirements.txt ./
-RUN python -m pip install --upgrade pip && \
-    pip install --prefix=/install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy only installed packages
-FROM python:3.9-alpine
-
-RUN apk add --no-cache graphviz
-
-WORKDIR /app
-
-COPY --from=builder /install /usr/local
+# Copy application code
 COPY . .
 
-EXPOSE 8501 8080
-
-COPY start.sh .
-RUN chmod +x start.sh
-
-CMD ["./start.sh"]
+# Lambda handler
+CMD ["lambda_handler.handler"]

@@ -6,7 +6,6 @@ import sys
 import re
 import json
 import uuid
-import logging
 import subprocess as sp
 import traceback
 import time
@@ -37,22 +36,28 @@ if not S3_BUCKET:
     raise RuntimeError("S3_BUCKET environment variable is not set")
 s3_client = boto3.client("s3")
 
-# Remove global UPLOAD_FOLDER. Use per-request temp directories instead.
+# Define global UPLOAD_FOLDER - use /tmp for Lambda
+# Check if running in Lambda environment
+IS_LAMBDA = os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is not None
+if IS_LAMBDA:
+    UPLOAD_FOLDER = '/tmp/diagrams/'
+    # No need to create this directory at startup in Lambda
+else:
+    UPLOAD_FOLDER = 'diagrams/'
+    # Only create the directory in non-Lambda environments
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# ===================
-# Logging Setup
-# ===================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-print(f"[DEBUG] Using LLM provider: {LLM_PROVIDER}")
-logger.info(f"[DEBUG] Using LLM provider: {LLM_PROVIDER}")
+# Define a function to get Lambda-safe paths
+def get_lambda_safe_path(path):
+    """Convert a path to be Lambda-safe by ensuring it's in /tmp when in Lambda environment"""
+    if IS_LAMBDA:
+        # Strip any leading slashes from the path
+        clean_path = path.lstrip('/')
+        return '/tmp/' + clean_path
+    else:
+        return path
+
+
 
 # ===================
 # Flask App Setup
@@ -71,11 +76,11 @@ def fix_dot_inplace(dot_path):
             dot_path, dot_path
         ], capture_output=True, text=True)
         if result.returncode == 0:
-            logger.info(f"[DEBUG] Fixed DOT icons in {dot_path}")
+            pass
         else:
-            logger.warning(f"[DEBUG] fix_dot_icons.py failed for {dot_path}: {result.stderr}")
+            pass
     except Exception as e:
-        logger.warning(f"[DEBUG] Exception running fix_dot_icons.py for {dot_path}: {e}")
+        pass
 
 def fix_svg_inplace(svg_path):
     try:
@@ -85,11 +90,11 @@ def fix_svg_inplace(svg_path):
             svg_path, svg_path
         ], capture_output=True, text=True)
         if result.returncode == 0:
-            logger.info(f"[DEBUG] Fixed SVG icons in {svg_path}")
+            pass
         else:
-            logger.warning(f"[DEBUG] fix_svg_icons.py failed for {svg_path}: {result.stderr}")
+            pass
     except Exception as e:
-        logger.warning(f"[DEBUG] Exception running fix_svg_icons.py for {svg_path}: {e}")
+        pass
 
 # New endpoint: Explain diagram code
 @app.route('/explain', methods=['POST'])
@@ -110,43 +115,47 @@ def explain_diagram():
     except Exception as e:
         return error_response(f'Failed to generate explanation: {str(e)}', 500)
 
+
 @app.route('/health', methods=['GET'])
 def health():
-    return 'OK', 200
+    print(f"/health route hit. request.path: {request.path}, request.url: {request.url}")
+    return jsonify({"status": "OK", "path": request.path, "url": request.url}), 200
+
+# Improved catch-all route for all paths, including root
+@app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+def catch_all(path):
+    print(f"catch_all route hit. path: {path}, request.path: {request.path}, method: {request.method}")
+    print(f"request.headers: {dict(request.headers)}")
+    print(f"request.data: {request.data}")
+    
+    # Special handling for root path
+    if path == '' and request.method == 'GET':
+        return index()
+    
+    return jsonify({
+        "error": "Not Found",
+        "path": path,
+        "method": request.method,
+        "request_path": request.path,
+        "request_url": request.url,
+        "headers": dict(request.headers)
+    }), 404
 
 @app.route('/')
 def index():
-    return 'OK', 200
-
-import os
-import json
-import logging
-from flask import Flask, request, jsonify, send_from_directory, render_template_string
-from werkzeug.utils import secure_filename
-from flask_cors import CORS
-import uuid
-
-
-app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
-UPLOAD_FOLDER = 'diagrams/'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
+    # Check if this is an API Gateway proxy integration
+    if request.headers.get('x-forwarded-proto') or request.headers.get('x-api-gateway-event'):
+        print("Detected API Gateway proxy integration")
+        # Log all headers for debugging
+        for header, value in request.headers.items():
+            print(f"Header: {header}: {value}")
+    
+    return 'Diagram AI API is running. Please use the /generate endpoint with POST requests.', 200
 
 # --- Shared error response helper ---
 def error_response(message, status=400, **kwargs):
-    logger.error(f"API error: {message}")
+    # Logging removed
     resp = {'error': message}
     resp.update(kwargs)
     return jsonify(resp), status
@@ -155,14 +164,43 @@ def error_response(message, status=400, **kwargs):
 @app.route('/diagrams/<path:filename>')
 def serve_diagram_file(filename):
     try:
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        # Use our helper function to determine the base diagrams folder
+        file_path = get_lambda_safe_path(os.path.join('diagrams', filename))
+        
+        # Check if file exists in the specified path
         if not os.path.isfile(file_path):
-            logger.warning(f"Requested diagram file not found: {file_path}")
+            # File not found
             return error_response(f'Diagram file not found: {filename}', 404)
-        logger.info(f"Serving diagram file: {file_path}")
-        return send_from_directory(UPLOAD_FOLDER, filename)
+        
+        # Lambda can't serve files from /tmp directly through send_from_directory
+        # In Lambda, serve files by reading and returning content
+        if IS_LAMBDA:
+            try:
+                with open(file_path, 'rb') as f:
+                    content = f.read()
+                
+                # Set content type based on file extension
+                content_type = 'image/png'  # Default
+                if filename.endswith('.svg'):
+                    content_type = 'image/svg+xml'
+                elif filename.endswith('.pdf'):
+                    content_type = 'application/pdf'
+                elif filename.endswith('.dot'):
+                    content_type = 'text/plain'
+                elif filename.endswith('.py'):
+                    content_type = 'text/plain'
+                elif filename.endswith('.md'):
+                    content_type = 'text/markdown'
+                
+                return content, 200, {'Content-Type': content_type}
+            except Exception as e:
+                return error_response(f'Failed to read diagram file: {str(e)}', 500)
+        else:
+            # For local development, use send_from_directory
+            base_dir = 'diagrams'  # In non-Lambda, it's just the regular diagrams directory
+            return send_from_directory(base_dir, filename)
     except Exception as e:
-        logger.error(f"Error serving diagram file {filename}: {e}")
+        # Logging removed
         return error_response(f'Failed to serve diagram file: {filename}', 500)
 
 
@@ -172,6 +210,8 @@ from llm_providers import generate_code_openai, generate_explanation_openai
 @app.route('/generate', methods=['POST'])
 
 def generate_diagram():
+    print("request.data:", request.data)
+    print("request.json:", request.json)
     timings = {}
     start_total = time.time()
 
@@ -214,20 +254,18 @@ def generate_diagram():
     # Generate code with selected LLM (from env)
     start_llm = time.time()
     try:
-        logger.info(f"[DEBUG] LLM_PROVIDER in generate_diagram: {LLM_PROVIDER}")
-        logger.info(f"[DEBUG] Description: {description}")
-        logger.info(f"[DEBUG] Instructions file: {instructions_file}")
+        # Logging removed
         if LLM_PROVIDER == 'gemini':
-            logger.info("[DEBUG] Calling generate_code_gemini...")
+            # Logging removed
             code = generate_code_gemini(description, instructions)
-            logger.info("Code generated by Gemini successfully.")
+            # Logging removed
         else:
-            logger.info("[DEBUG] Calling generate_code_openai...")
+            # Logging removed
             code = generate_code_openai(description, instructions)
-            logger.info("Code generated by OpenAI successfully.")
+            # Logging removed
     except Exception as e:
         tb = traceback.format_exc()
-        logger.error(f"[DEBUG] Exception in code generation: {e}\n{tb}")
+        # Logging removed
         if LLM_PROVIDER == 'openai' and ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
             return error_response(
                 'OpenAI API quota exceeded. Please check your plan and billing at https://platform.openai.com/account/usage',
@@ -247,18 +285,20 @@ def generate_diagram():
     import tempfile, shutil
     temp_uuid = str(uuid.uuid4())
     temp_dir_name = f"{provider_prefix}-{temp_uuid}"
-    UPLOAD_FOLDER = os.path.join('diagrams', temp_dir_name)
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    
+    # Create a Lambda-safe path using our helper function
+    temp_upload_folder = get_lambda_safe_path(os.path.join('diagrams', temp_dir_name))
+    os.makedirs(temp_upload_folder, exist_ok=True)
 
     # Save raw code
     start_save_raw = time.time()
-    raw_code_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram_raw.py')
+    raw_code_path = os.path.join(temp_upload_folder, 'generated_diagram_raw.py')
     try:
         with open(raw_code_path, 'w') as f:
             f.write(code)
-        logger.info(f"Raw code saved to {raw_code_path}")
+        # Logging removed
     except Exception as e:
-        shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
+        shutil.rmtree(temp_upload_folder, ignore_errors=True)
         return error_response('Failed to save raw code', 500)
     timings['save_raw_code'] = time.time() - start_save_raw
 
@@ -281,13 +321,13 @@ def generate_diagram():
 
     # Save sanitized code before running it!
     start_save_sanitized = time.time()
-    sanitized_code_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.py')
+    sanitized_code_path = os.path.join(temp_upload_folder, 'generated_diagram.py')
     try:
         with open(sanitized_code_path, 'w') as f:
             f.write(code)
-        logger.info(f"Sanitized code saved to {sanitized_code_path}")
+        # Logging removed
     except Exception as e:
-        shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
+        shutil.rmtree(temp_upload_folder, ignore_errors=True)
         return error_response('Failed to save sanitized code', 500)
     timings['save_sanitized_code'] = time.time() - start_save_sanitized
 
@@ -295,7 +335,7 @@ def generate_diagram():
     start_exec = time.time()
     cwd = os.getcwd()
     try:
-        os.chdir(UPLOAD_FOLDER)
+        os.chdir(temp_upload_folder)
         try:
             proc = subprocess.run(
                 ['python3', 'generated_diagram.py'],
@@ -303,9 +343,7 @@ def generate_diagram():
                 text=True,
                 timeout=60
             )
-            logger.info(f"Diagram code executed. Return code: {proc.returncode}")
             if proc.returncode != 0:
-                logger.error(f"Diagram code execution failed. Stderr: {proc.stderr}\nStdout: {proc.stdout}")
                 # If it's a SyntaxError or the code is not valid Python, return 422
                 if 'SyntaxError' in proc.stderr or 'invalid syntax' in proc.stderr:
                     response_data = {
@@ -315,7 +353,6 @@ def generate_diagram():
                         'raw_code_url': raw_code_url,
                         'sanitized_code_url': sanitized_code_url
                     }
-                    logger.error("API response to frontend: %s", json.dumps(response_data, indent=2))
                     return jsonify(response_data), 422
                 # If it's a TypeError for list >> list, return a user-friendly error
                 if 'TypeError' in proc.stderr and 'unsupported operand type(s) for >>' in proc.stderr:
@@ -326,7 +363,6 @@ def generate_diagram():
                         'raw_code_url': raw_code_url,
                         'sanitized_code_url': sanitized_code_url
                     }
-                    logger.error("API response to frontend: %s", json.dumps(response_data, indent=2))
                     return jsonify(response_data), 422
                 # Try to return the diagram if it was generated, even if there was an error
                 image_candidates = []
@@ -346,7 +382,7 @@ def generate_diagram():
                             title_clean = title.lower().replace(' ', '_').replace('/', '_')
                             image_candidates.append(title_clean + '.png')
                 except Exception as e:
-                    logger.warning(f"Could not infer image filename from code: {e}")
+                    print(f"Could not infer image filename from code: {e}")
                 for candidate in image_candidates:
                     if os.path.exists(candidate):
                         image_url = f'/diagrams/{candidate.replace(os.sep, "/")}'
@@ -357,7 +393,6 @@ def generate_diagram():
                             'stderr': proc.stderr,
                             'stdout': proc.stdout
                         }
-                        logger.error("API response to frontend: %s", json.dumps(response_data, indent=2))
                         return jsonify(response_data), 206
                 # Fallback: search for any .png in folder
                 for fname in os.listdir('.'):
@@ -370,7 +405,6 @@ def generate_diagram():
                             'stderr': proc.stderr,
                             'stdout': proc.stdout
                         }
-                        logger.error("API response to frontend: %s", json.dumps(response_data, indent=2))
                         return jsonify(response_data), 206
                 response_data = {
                     'error': 'Diagram code execution failed',
@@ -379,10 +413,8 @@ def generate_diagram():
                     'raw_code_url': raw_code_url,
                     'sanitized_code_url': sanitized_code_url
                 }
-                logger.error("API response to frontend: %s", json.dumps(response_data, indent=2))
                 return jsonify(response_data), 500
         except Exception as e:
-            logger.error(f"Diagram execution error: {e}")
             return error_response(f'Diagram execution error: {str(e)}', 500)
     finally:
         os.chdir(cwd)
@@ -406,9 +438,9 @@ def generate_diagram():
                 title_clean = title.lower().replace(' ', '_').replace('/', '_')
                 base_names.add(title_clean)
     except Exception as e:
-        logger.warning(f"Could not infer image filename from code: {e}")
-    # Fallback: search for any output file in UPLOAD_FOLDER and subfolders
-    for root, dirs, files in os.walk(UPLOAD_FOLDER):
+        print(f"Could not infer image filename from code: {e}")
+    # Fallback: search for any output file in temp_upload_folder and subfolders
+    for root, dirs, files in os.walk(temp_upload_folder):
         for fname in files:
             for ext in output_formats:
                 if fname.endswith('.' + ext):
@@ -429,33 +461,28 @@ def generate_diagram():
             "Code:\n"
             f"{code}"
         )
-        logger.info(f"[DEBUG] Explanation prompt: {explanation_prompt[:200]}...")
         if LLM_PROVIDER == 'gemini':
-            logger.info("[DEBUG] Calling generate_explanation_gemini...")
             explanation = generate_explanation_gemini(explanation_prompt)
         else:
-            logger.info("[DEBUG] Calling generate_explanation_openai...")
             explanation = generate_explanation_openai(explanation_prompt)
     except Exception as e:
-        logger.error(f"[DEBUG] Failed to generate explanation: {e}")
         explanation = None
     timings['explanation'] = time.time() - start_explanation
 
     # Save explanation as Markdown file
     try:
-        md_path = os.path.join(UPLOAD_FOLDER, 'generated_diagram.md')
+        md_path = os.path.join(temp_upload_folder, 'generated_diagram.md')
         with open(md_path, 'w') as f:
             f.write(explanation or "(No explanation generated)")
-        logger.info(f"Explanation saved to {md_path}")
     except Exception as e:
-        logger.error(f"Failed to save explanation markdown: {e}")
+        print(f"Failed to save explanation markdown: {e}")
 
     # --- S3 Upload Logic (after all outputs and variables are defined) ---
     start_s3 = time.time()
     s3_folder = temp_dir_name  # Use the same provider-prefixed folder name for S3
     uploaded_files = {}
-    # Upload all files in UPLOAD_FOLDER and subfolders, but flatten the S3 structure
-    for root, dirs, files in os.walk(UPLOAD_FOLDER):
+    # Upload all files in temp_upload_folder and subfolders, but flatten the S3 structure
+    for root, dirs, files in os.walk(temp_upload_folder):
         for fname in files:
             if fname.startswith('.'):
                 continue  # skip hidden files like .DS_Store
@@ -482,7 +509,6 @@ def generate_diagram():
             explanation_md_url = uploaded_files.get('generated_diagram.md')
             timings['total'] = time.time() - start_total
             # Log timings before returning
-            logger.info(f"TIMINGS: {json.dumps(timings, indent=2)}")
             return jsonify({
                 'diagram_files': urls,  # S3 URLs for images and outputs
                 'raw_code_url': raw_code_url,
@@ -497,11 +523,9 @@ def generate_diagram():
     finally:
         # Always clean up the temp directory after processing
         try:
-            shutil.rmtree(UPLOAD_FOLDER, ignore_errors=True)
-            logger.info(f"Cleaned up temp directory: {UPLOAD_FOLDER}")
+            shutil.rmtree(temp_upload_folder, ignore_errors=True)
         except Exception as e:
-            logger.warning(f"Failed to clean up temp directory {UPLOAD_FOLDER}: {e}")
-
+            print(f"Failed to clean up temp directory {temp_upload_folder}: {e}")
 
 def upload_file_to_s3(local_path, s3_folder, filename):
     s3_key = f"{s3_folder}/{filename}"
@@ -509,9 +533,8 @@ def upload_file_to_s3(local_path, s3_folder, filename):
     # Delete the local file after upload
     try:
         os.remove(local_path)
-        logger.info(f"Deleted local file after upload: {local_path}")
     except Exception as e:
-        logger.warning(f"Failed to delete local file {local_path}: {e}")
+        print(f"Failed to delete local file {local_path}: {e}")
     return s3_key
 
 def generate_presigned_url(s3_key, expires_in=3600):
@@ -523,7 +546,7 @@ def generate_presigned_url(s3_key, expires_in=3600):
         )
         return url
     except ClientError as e:
-        logger.error(f"Failed to generate presigned URL: {e}")
+        print(f"Failed to generate presigned URL for {s3_key}: {e}")
         return None
 
 
