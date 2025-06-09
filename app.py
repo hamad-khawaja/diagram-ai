@@ -102,15 +102,68 @@ def explain_diagram():
     code = data.get('code')
     if not code or not isinstance(code, str):
         return error_response('Valid Python code is required for explanation.', 400)
-    prompt = (
+    
+    # Get provider from request if provided
+    provider = data.get('provider') if data else None
+    provider = provider.strip().lower() if provider else None
+    
+    # Original prompt to be used if no provider or rewriting fails
+    original_prompt = (
         "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
         "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
         "Code:\n"
         f"{code}"
     )
+    
+    prompt = original_prompt
+    
+    # If provider is specified, rewrite the explanation prompt
+    if provider and provider in ['aws', 'azure', 'gcp']:
+        try:
+            # Map providers to rewrite instruction files
+            rewrite_provider_map = {
+                'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
+                'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
+                'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
+            }
+            
+            rewrite_instructions_file = rewrite_provider_map.get(provider)
+            
+            # Verify the rewrite instructions file exists
+            if rewrite_instructions_file and os.path.exists(rewrite_instructions_file):
+                # Read the rewrite instructions
+                with open(rewrite_instructions_file, 'r') as f:
+                    rewrite_instructions = f.read()
+                
+                # Craft a provider-specific explanation prompt
+                rewrite_prompt = (
+                    f"I need to explain this {provider.upper()} architecture diagram code in the correct terminology. "
+                    f"Please provide a bullet-point explanation using proper {provider.upper()} terminology for this code:\n\n{code}"
+                )
+                
+                # Rewrite the prompt using OpenAI
+                rewritten_prompt = generate_rewrite_openai(rewrite_prompt, rewrite_instructions)
+                
+                # Use the rewritten prompt if successful
+                if rewritten_prompt:
+                    prompt = rewritten_prompt
+        except Exception as e:
+            # If rewriting fails, continue with the original prompt
+            print(f"Warning: Explanation prompt rewriting failed: {str(e)}. Continuing with original prompt.")
+    
     try:
         explanation = generate_explanation_openai(prompt)
-        return jsonify({'explanation': explanation})
+        response = {
+            'explanation': explanation
+        }
+        
+        # Include original and rewritten prompts if a rewrite was performed
+        if prompt != original_prompt:
+            response['original_prompt'] = original_prompt
+            response['rewritten_prompt'] = prompt
+            response['provider'] = provider
+            
+        return jsonify(response)
     except Exception as e:
         return error_response(f'Failed to generate explanation: {str(e)}', 500)
 
@@ -501,12 +554,52 @@ def generate_diagram():
     start_explanation = time.time()
     explanation = None
     try:
-        explanation_prompt = (
+        # Original explanation prompt
+        original_explanation_prompt = (
             "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
             "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
             "Code:\n"
             f"{code}"
         )
+        
+        explanation_prompt = original_explanation_prompt
+        
+        # If we have a provider, try to rewrite the explanation prompt with provider-specific terminology
+        if provider and provider in ['aws', 'azure', 'gcp']:
+            try:
+                # Map providers to rewrite instruction files (reuse the same mapping as before)
+                rewrite_provider_map = {
+                    'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
+                    'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
+                    'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
+                }
+                
+                rewrite_instructions_file = rewrite_provider_map.get(provider)
+                
+                # Verify the rewrite instructions file exists
+                if rewrite_instructions_file and os.path.exists(rewrite_instructions_file):
+                    # Read the rewrite instructions (if not already read earlier)
+                    if 'rewrite_instructions' not in locals():
+                        with open(rewrite_instructions_file, 'r') as f:
+                            rewrite_instructions = f.read()
+                    
+                    # Craft a provider-specific explanation prompt
+                    rewrite_prompt = (
+                        f"I need to explain this {provider.upper()} architecture diagram code in the correct terminology. "
+                        f"Please provide a bullet-point explanation using proper {provider.upper()} terminology for this code:\n\n{code}"
+                    )
+                    
+                    # Rewrite the prompt using OpenAI
+                    rewritten_prompt = generate_rewrite_openai(rewrite_prompt, rewrite_instructions)
+                    
+                    # Use the rewritten prompt if successful
+                    if rewritten_prompt:
+                        explanation_prompt = rewritten_prompt
+            except Exception as e:
+                # If rewriting fails, continue with the original explanation prompt
+                print(f"Warning: Explanation prompt rewriting failed: {str(e)}. Continuing with original prompt.")
+        
+        # Generate the explanation using the (potentially rewritten) prompt
         explanation = generate_explanation_openai(explanation_prompt)
     except Exception as e:
         explanation = None

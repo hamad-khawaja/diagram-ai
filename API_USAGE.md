@@ -169,6 +169,48 @@ Rewrite user input with cloud-specific terminology and best practices based on t
 
 ## 3. Explain Diagram Code
 
+**Endpoint:** `POST /explain`
+
+**Description:**
+Generate a bullet-point explanation of a diagram code. When a provider is specified, the explanation will use provider-specific terminology.
+
+**Request Body (JSON):**
+```json
+{
+  "code": "<Python code for the diagram>",
+  "provider": "aws"        // Optional: "aws", "azure", or "gcp". If provided, the explanation will use provider-specific terminology.
+}
+```
+
+**Note:**
+- The `provider` field is optional. If set to `"aws"`, `"azure"`, or `"gcp"`, the explanation will use provider-specific terminology. 
+- Set the appropriate API key as an environment variable: `OPENAI_API_KEY`.
+
+**Response (Success - without provider):**
+```json
+{
+  "explanation": "<Bullet-point explanation of the diagram code>"
+}
+```
+
+**Response (Success - with provider):**
+```json
+{
+  "explanation": "<Bullet-point explanation with provider-specific terminology>",
+  "original_prompt": "<The original explanation prompt>",
+  "rewritten_prompt": "<The provider-specific prompt>",
+  "provider": "aws"
+}
+```
+
+**Response (Error):**
+```json
+{
+  "error": "<Error message>",
+  "status_code": 400
+}
+```
+
 ---
 
 ## Error Handling

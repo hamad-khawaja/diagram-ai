@@ -79,3 +79,31 @@ def test_generate_with_auto_rewrite(client, monkeypatch):
     # Test that generate endpoint calls rewrite first
     resp = client.post('/generate', json={"description": "test", "provider": "aws"})
     assert rewrite_called, "Rewrite function was not called during generate"
+
+def test_explain_with_provider(client, monkeypatch):
+    # Mock the rewrite and explanation functions to check if rewriting is done
+    rewrite_called = False
+    
+    def mock_rewrite(*args, **kwargs):
+        nonlocal rewrite_called
+        rewrite_called = True
+        return "Rewritten prompt with provider-specific terminology"
+    
+    def mock_explanation(*args, **kwargs):
+        return "Provider-specific explanation"
+    
+    monkeypatch.setattr(app, 'generate_rewrite_openai', mock_rewrite)
+    monkeypatch.setattr(app, 'generate_explanation_openai', mock_explanation)
+    
+    # Test that explain endpoint uses rewrite when provider is specified
+    resp = client.post('/explain', json={"code": "test code", "provider": "aws"})
+    assert resp.status_code == 200
+    assert rewrite_called, "Rewrite function was not called when provider was specified"
+    
+    # Check response content
+    data = resp.get_json()
+    assert 'explanation' in data
+    assert 'original_prompt' in data
+    assert 'rewritten_prompt' in data
+    assert 'provider' in data
+    assert data['provider'] == 'aws'
