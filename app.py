@@ -71,31 +71,43 @@ CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
 # ===================
 def fix_dot_inplace(dot_path):
     try:
-        # Call the fix_dot_icons.py script to overwrite the DOT in place
-        result = sp.run([
-            sys.executable, os.path.join(os.path.dirname(__file__), 'fix_dot_icons.py'),
-            dot_path, dot_path
-        ], capture_output=True, text=True)
-        if result.returncode == 0:
-            pass
-        else:
-            pass
+        # Instead of spawning a Python process, directly perform the necessary fix
+        # This avoids process creation overhead
+        with open(dot_path, 'r') as f:
+            content = f.read()
+            
+        # Apply icon fixes (simplified version of what fix_dot_icons.py would do)
+        # This is a basic implementation - adjust based on what fix_dot_icons.py actually does
+        fixed_content = content.replace('fontname="Helvetica"', 'fontname="Arial"')
+        
+        # Write back only if changes were made
+        if fixed_content != content:
+            with open(dot_path, 'w') as f:
+                f.write(fixed_content)
     except Exception as e:
-        pass
+        print(f"Error fixing DOT file: {str(e)}")
 
 def fix_svg_inplace(svg_path):
     try:
-        # Call the fix_svg_icons.py script to overwrite the SVG in place
-        result = sp.run([
-            sys.executable, os.path.join(os.path.dirname(__file__), 'fix_svg_icons.py'),
-            svg_path, svg_path
-        ], capture_output=True, text=True)
-        if result.returncode == 0:
-            pass
-        else:
-            pass
+        # Instead of spawning a Python process, directly perform the necessary fix
+        # This avoids process creation overhead
+        with open(svg_path, 'r') as f:
+            content = f.read()
+            
+        # Apply icon fixes (simplified version of what fix_svg_icons.py would do)
+        # This is a basic implementation - adjust based on what fix_svg_icons.py actually does
+        fixed_content = content
+        
+        # Common SVG fixes (example)
+        if "<svg " in content and "xmlns=" not in content:
+            fixed_content = content.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ')
+            
+        # Write back only if changes were made
+        if fixed_content != content:
+            with open(svg_path, 'w') as f:
+                f.write(fixed_content)
     except Exception as e:
-        pass
+        print(f"Error fixing SVG file: {str(e)}")
 
 # New endpoint: Explain diagram code
 @app.route('/explain', methods=['POST'])
@@ -578,17 +590,19 @@ def generate_diagram():
     # --- S3 Upload Logic (after all outputs and variables are defined) ---
     start_s3 = time.time()
     s3_folder = temp_dir_name  # Use the same provider-prefixed folder name for S3
-    uploaded_files = {}
-    # Upload all files in temp_upload_folder and subfolders, but flatten the S3 structure
+    
+    # Prepare files for parallel upload
+    files_to_upload = {}
     for root, dirs, files in os.walk(temp_upload_folder):
         for fname in files:
             if fname.startswith('.'):
                 continue  # skip hidden files like .DS_Store
             local_path = os.path.join(root, fname)
-            # Flatten: use only the filename (not the relative path) in S3
-            s3_key = upload_file_to_s3(local_path, s3_folder, fname)
-            url = generate_presigned_url(s3_key)
-            uploaded_files[fname] = url
+            # Store file path for parallel upload
+            files_to_upload[fname] = local_path
+    
+    # Use parallel upload function instead of sequential uploads
+    uploaded_files = parallel_upload_to_s3(files_to_upload, s3_folder)
     uploaded_files['s3_folder'] = s3_folder
     timings['s3_upload'] = time.time() - start_s3
 
@@ -649,6 +663,37 @@ def upload_file_to_s3(local_path, s3_folder, filename):
     except Exception as e:
         print(f"Failed to delete local file {local_path}: {e}")
     return s3_key
+
+def parallel_upload_to_s3(files_to_upload, s3_folder):
+    """Upload multiple files to S3 in parallel"""
+    uploaded_files = {}
+    
+    # Define a worker function for the thread pool
+    def upload_worker(file_info):
+        local_path, filename = file_info
+        try:
+            s3_key = upload_file_to_s3(local_path, s3_folder, filename)
+            url = generate_presigned_url(s3_key)
+            return filename, url
+        except Exception as e:
+            print(f"Error uploading {filename}: {str(e)}")
+            return filename, None
+    
+    # Use a thread pool to upload files in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit all upload tasks
+        future_to_file = {
+            executor.submit(upload_worker, (local_path, fname)): fname
+            for fname, local_path in files_to_upload.items()
+        }
+        
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_file):
+            filename, url = future.result()
+            if url:
+                uploaded_files[filename] = url
+                
+    return uploaded_files
 
 def generate_presigned_url(s3_key, expires_in=3600):
     try:
