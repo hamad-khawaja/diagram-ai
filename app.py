@@ -238,9 +238,9 @@ def generate_diagram():
 
     # Map providers to instruction files in the /instructions directory
     provider_map = {
-        'aws': 'instructions/instructions_aws.md',
-        'azure': 'instructions/instructions_azure.md',
-        'gcp': 'instructions/instructions_gcp.md'
+        'aws': 'instructions/generate/instructions_aws.md',
+        'azure': 'instructions/generate/instructions_azure.md',
+        'gcp': 'instructions/generate/instructions_gcp.md'
     }
     provider_prefix = provider if provider in provider_map else 'unknown'
     instructions_file = provider_map.get(provider)
