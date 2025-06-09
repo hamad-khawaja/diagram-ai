@@ -9,6 +9,7 @@ import uuid
 import subprocess as sp
 import traceback
 import time
+import concurrent.futures
 
 # ===================
 # Imports (Third-Party)
@@ -26,6 +27,7 @@ from llm_providers import (
     generate_code_openai, generate_explanation_openai,
     generate_rewrite_openai
 )
+from parallel import generate_explanation_async
 
 # ===================
 # Global Variables & Constants
@@ -430,12 +432,17 @@ def generate_diagram():
         return error_response('Failed to save sanitized code', 500)
     timings['save_sanitized_code'] = time.time() - start_save_sanitized
 
-    # Run diagram code
-    start_exec = time.time()
-    cwd = os.getcwd()
-    try:
-        os.chdir(temp_upload_folder)
+    # --- Start explanation generation in parallel with diagram execution ---
+    start_explanation = time.time()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit the explanation generation task to run in parallel
+        explanation_future = executor.submit(generate_explanation_async, code, provider)
+        
+        # Run diagram code (in the main thread)
+        start_exec = time.time()
+        cwd = os.getcwd()
         try:
+            os.chdir(temp_upload_folder)
             proc = subprocess.run(
                 ['python3', 'generated_diagram.py'],
                 capture_output=True,
@@ -515,9 +522,19 @@ def generate_diagram():
                 return jsonify(response_data), 500
         except Exception as e:
             return error_response(f'Diagram execution error: {str(e)}', 500)
-    finally:
-        os.chdir(cwd)
-    timings['diagram_execution'] = time.time() - start_exec
+        finally:
+            os.chdir(cwd)
+            
+        timings['diagram_execution'] = time.time() - start_exec
+        
+        # Now get the explanation result
+        try:
+            explanation = explanation_future.result()
+        except Exception as e:
+            print(f"Error getting explanation result: {str(e)}")
+            explanation = None
+            
+    timings['explanation'] = time.time() - start_explanation
 
     # Collect output files
     output_formats = ["png", "svg", "pdf", "dot", "jpg"]
@@ -549,61 +566,6 @@ def generate_diagram():
                     if ext == "svg":
                         svg_path = os.path.join(root, fname)
                         fix_svg_inplace(svg_path)
-
-    # --- Generate explanation (always, for now) ---
-    start_explanation = time.time()
-    explanation = None
-    try:
-        # Original explanation prompt
-        original_explanation_prompt = (
-            "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
-            "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
-            "Code:\n"
-            f"{code}"
-        )
-        
-        explanation_prompt = original_explanation_prompt
-        
-        # If we have a provider, try to rewrite the explanation prompt with provider-specific terminology
-        if provider and provider in ['aws', 'azure', 'gcp']:
-            try:
-                # Map providers to rewrite instruction files (reuse the same mapping as before)
-                rewrite_provider_map = {
-                    'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
-                    'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
-                    'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
-                }
-                
-                rewrite_instructions_file = rewrite_provider_map.get(provider)
-                
-                # Verify the rewrite instructions file exists
-                if rewrite_instructions_file and os.path.exists(rewrite_instructions_file):
-                    # Read the rewrite instructions (if not already read earlier)
-                    if 'rewrite_instructions' not in locals():
-                        with open(rewrite_instructions_file, 'r') as f:
-                            rewrite_instructions = f.read()
-                    
-                    # Craft a provider-specific explanation prompt
-                    rewrite_prompt = (
-                        f"I need to explain this {provider.upper()} architecture diagram code in the correct terminology. "
-                        f"Please provide a bullet-point explanation using proper {provider.upper()} terminology for this code:\n\n{code}"
-                    )
-                    
-                    # Rewrite the prompt using OpenAI
-                    rewritten_prompt = generate_rewrite_openai(rewrite_prompt, rewrite_instructions)
-                    
-                    # Use the rewritten prompt if successful
-                    if rewritten_prompt:
-                        explanation_prompt = rewritten_prompt
-            except Exception as e:
-                # If rewriting fails, continue with the original explanation prompt
-                print(f"Warning: Explanation prompt rewriting failed: {str(e)}. Continuing with original prompt.")
-        
-        # Generate the explanation using the (potentially rewritten) prompt
-        explanation = generate_explanation_openai(explanation_prompt)
-    except Exception as e:
-        explanation = None
-    timings['explanation'] = time.time() - start_explanation
 
     # Save explanation as Markdown file
     try:
