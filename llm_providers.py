@@ -10,7 +10,7 @@ def generate_explanation_openai(prompt):
         raise ValueError("OPENAI_API_KEY environment variable is missing or invalid.")
     client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
-        model="gpt-4o",  # Use the more widely available gpt-4o model instead of gpt-4.1
+        model="gpt-3.5-turbo",  # Using faster GPT-3.5 for explanations
         messages=[
             {"role": "system", "content": "You are a helpful cloud architecture assistant."},
             {"role": "user", "content": prompt}
@@ -75,7 +75,7 @@ def generate_rewrite_openai(user_input, instructions):
         raise ValueError("OPENAI_API_KEY environment variable is missing or invalid.")
     client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-3.5-turbo",  # Using faster GPT-3.5 for rewriting
         messages=[
             {"role": "system", "content": instructions},
             {"role": "user", "content": user_input}
