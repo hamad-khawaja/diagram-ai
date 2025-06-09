@@ -69,24 +69,6 @@ CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
 # ===================
 # Utility Functions
 # ===================
-def fix_dot_inplace(dot_path):
-    try:
-        # Instead of spawning a Python process, directly perform the necessary fix
-        # This avoids process creation overhead
-        with open(dot_path, 'r') as f:
-            content = f.read()
-            
-        # Apply icon fixes (simplified version of what fix_dot_icons.py would do)
-        # This is a basic implementation - adjust based on what fix_dot_icons.py actually does
-        fixed_content = content.replace('fontname="Helvetica"', 'fontname="Arial"')
-        
-        # Write back only if changes were made
-        if fixed_content != content:
-            with open(dot_path, 'w') as f:
-                f.write(fixed_content)
-    except Exception as e:
-        print(f"Error fixing DOT file: {str(e)}")
-
 def fix_svg_inplace(svg_path):
     try:
         # Instead of spawning a Python process, directly perform the necessary fix
