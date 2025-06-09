@@ -129,6 +129,46 @@ curl http://localhost:5050/diagrams/generated_diagram.png --output diagram.png
 
 ---
 
+## 2. Rewrite Content
+
+**Endpoint:** `POST /rewrite`
+
+**Description:**
+Rewrite user input with cloud-specific terminology and best practices based on the specified provider.
+
+**Request Body (JSON):**
+```json
+{
+  "user_input": "<Your architecture description>",
+  "provider": "aws"        // Required: "aws", "azure", or "gcp".
+}
+```
+
+**Note:**
+- The `provider` field is required and must be set to one of: `"aws"`, `"azure"`, or `"gcp"`. Each provider has specific rewrite instructions.
+- The LLM provider is selected at app startup using the `LLM_PROVIDER` environment variable (`openai` or `gemini`).
+- Set the appropriate API key as an environment variable: `OPENAI_API_KEY` for OpenAI, or `GEMINI_API_KEY` for Gemini.
+
+**Response (Success):**
+```json
+{
+  "rewritten_content": "<Rewritten content with cloud provider-specific terminology>",
+  "provider": "aws"
+}
+```
+
+**Response (Error):**
+```json
+{
+  "error": "<Error message>",
+  "status_code": 400
+}
+```
+
+## 3. Explain Diagram Code
+
+---
+
 ## Error Handling
 - All errors return JSON with an `error` field and appropriate HTTP status code.
 - For OpenAI API rate limits, a 429 status and a clear message are returned.

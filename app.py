@@ -24,7 +24,8 @@ from botocore.exceptions import ClientError
 # ===================
 from llm_providers import (
     generate_code_openai, generate_explanation_openai,
-    generate_code_gemini, generate_explanation_gemini
+    generate_code_gemini, generate_explanation_gemini,
+    generate_rewrite_openai, generate_rewrite_gemini
 )
 
 # ===================
@@ -557,6 +558,64 @@ def generate_presigned_url(s3_key, expires_in=3600):
         print(f"Failed to generate presigned URL for {s3_key}: {e}")
         return None
 
+# New endpoint: Rewrite user input based on cloud provider
+@app.route('/rewrite', methods=['POST'])
+def rewrite_endpoint():
+    # Parse and validate the request
+    data = request.get_json()
+    if not data:
+        return error_response('Invalid JSON in request body', 400)
+
+    # Extract and validate user_input
+    user_input = data.get('user_input')
+    if not user_input or not isinstance(user_input, str) or not user_input.strip():
+        return error_response('user_input is required and must be a non-empty string', 400)
+    
+    # Extract and validate provider
+    provider = data.get('provider', '').lower()
+    if not provider or provider not in ['aws', 'azure', 'gcp']:
+        return error_response('Cloud provider is required. Please set provider to aws, azure, or gcp.', 400)
+
+    # Map providers to rewrite instruction files
+    provider_map = {
+        'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
+        'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
+        'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
+    }
+    
+    instructions_file = provider_map.get(provider)
+    
+    # Verify the instructions file exists
+    if not os.path.exists(instructions_file):
+        return error_response(f'Rewrite instructions file not found at {instructions_file}. Please check your installation.', 500)
+    
+    # Read the instructions
+    try:
+        with open(instructions_file, 'r') as f:
+            instructions = f.read()
+    except Exception as e:
+        return error_response(f'Failed to read {instructions_file}: {e}', 500)
+    
+    # Generate rewritten content with selected LLM
+    try:
+        if LLM_PROVIDER == 'gemini':
+            rewritten_content = generate_rewrite_gemini(user_input, instructions)
+        else:
+            rewritten_content = generate_rewrite_openai(user_input, instructions)
+    except Exception as e:
+        tb = traceback.format_exc()
+        if LLM_PROVIDER == 'openai' and ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
+            return error_response(
+                'OpenAI API quota exceeded. Please check your plan and billing at https://platform.openai.com/account/usage',
+                429
+            )
+        return error_response(f'{LLM_PROVIDER.capitalize()} API error: {str(e)}', 500, traceback=tb)
+    
+    # Return the rewritten content
+    return jsonify({
+        'rewritten_content': rewritten_content,
+        'provider': provider
+    })
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5050)

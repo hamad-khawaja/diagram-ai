@@ -170,3 +170,50 @@ def extract_python_code(content):
     # Optionally, remove empty lines left by this
     code = '\n'.join([l for l in code.splitlines() if l.strip()])
     return code
+
+def generate_rewrite_openai(user_input, instructions):
+    """
+    Generate rewritten content using OpenAI's API based on rewrite instructions.
+    """
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key or not api_key.startswith("sk-"):
+        raise ValueError("OPENAI_API_KEY environment variable is missing or invalid.")
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": user_input}
+        ],
+        temperature=0,
+        max_tokens=15024,
+        top_p=1
+    )
+    return response.choices[0].message.content.strip()
+
+
+def generate_rewrite_gemini(user_input, instructions):
+    """
+    Generate rewritten content using Gemini's API based on rewrite instructions.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY environment variable is missing or invalid.")
+    model = GEMINI_MODEL
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key=" + api_key
+    prompt = f"{instructions}\n\nUser input: {user_input}"
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+    response = requests.post(endpoint, json=payload)
+    if not response.ok:
+        raise Exception(f"Gemini API error: {response.text}")
+    data = response.json()
+    content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    return content.strip()
