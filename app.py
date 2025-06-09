@@ -375,7 +375,7 @@ def generate_diagram():
             f.write(code)
         # Logging removed
     except Exception as e:
-        shutil.rmtree(temp_upload_folder, ignore_errors=True)
+        # No need to clean up as Lambda automatically cleans up /tmp
         return error_response('Failed to save raw code', 500)
     timings['save_raw_code'] = time.time() - start_save_raw
 
@@ -387,11 +387,10 @@ def generate_diagram():
         with open(original_input_path, 'w') as f:
             f.write(original_description or "")
             
-        # Save the rewritten description if it exists
-        if rewritten_description:
-            rewritten_input_path = os.path.join(temp_upload_folder, 'rewritten_input.txt')
-            with open(rewritten_input_path, 'w') as f:
-                f.write(rewritten_description)
+        # Always save the rewritten description (use original if rewriting failed)
+        rewritten_input_path = os.path.join(temp_upload_folder, 'rewritten_input.txt')
+        with open(rewritten_input_path, 'w') as f:
+            f.write(rewritten_description or original_description or "")
     except Exception as e:
         print(f"Warning: Failed to save input descriptions: {str(e)}")
         # Continue execution even if saving descriptions fails
@@ -422,7 +421,7 @@ def generate_diagram():
             f.write(code)
         # Logging removed
     except Exception as e:
-        shutil.rmtree(temp_upload_folder, ignore_errors=True)
+        # No need to clean up as Lambda automatically cleans up /tmp
         return error_response('Failed to save sanitized code', 500)
     timings['save_sanitized_code'] = time.time() - start_save_sanitized
 
@@ -604,7 +603,7 @@ def generate_diagram():
             
             # Get URLs for input files if they exist
             original_input_url = uploaded_files.get('original_input.txt')
-            rewritten_input_url = uploaded_files.get('rewritten_input.txt', None)  # May be None if rewriting failed
+            rewritten_input_url = uploaded_files.get('rewritten_input.txt')
             
             timings['total'] = time.time() - start_total
             
@@ -630,20 +629,13 @@ def generate_diagram():
         # Final fallback: should never be reached, but ensures a response is always sent
         return error_response('Unknown server error', 500)
     finally:
-        # Always clean up the temp directory after processing
-        try:
-            shutil.rmtree(temp_upload_folder, ignore_errors=True)
-        except Exception as e:
-            print(f"Failed to clean up temp directory {temp_upload_folder}: {e}")
+        # Lambda automatically cleans up the /tmp directory between invocations
+        pass
 
 def upload_file_to_s3(local_path, s3_folder, filename):
     s3_key = f"{s3_folder}/{filename}"
     s3_client.upload_file(local_path, S3_BUCKET, s3_key)
-    # Delete the local file after upload
-    try:
-        os.remove(local_path)
-    except Exception as e:
-        print(f"Failed to delete local file {local_path}: {e}")
+    # No need to delete local files as Lambda automatically cleans up /tmp
     return s3_key
 
 def parallel_upload_to_s3(files_to_upload, s3_folder):

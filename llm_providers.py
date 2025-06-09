@@ -60,7 +60,7 @@ def generate_explanation_openai(prompt):
         model="gpt-3.5-turbo",
         messages=messages,
         temperature=0,
-        max_tokens=15120,
+        max_tokens=4000,  # Reduced to be within model limits (GPT-3.5-Turbo supports max 4096 tokens)
         top_p=0.7
     )
     return response.choices[0].message.content.strip()
@@ -119,7 +119,7 @@ def generate_rewrite_openai(user_input, instructions):
         model="gpt-3.5-turbo",
         messages=messages,
         temperature=0,
-        max_tokens=15024,
+        max_tokens=4000,  # Reduced to be within model limits (GPT-3.5-Turbo supports max 4096 tokens)
         top_p=1
     )
     return response.choices[0].message.content.strip()
