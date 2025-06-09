@@ -24,14 +24,12 @@ from botocore.exceptions import ClientError
 # ===================
 from llm_providers import (
     generate_code_openai, generate_explanation_openai,
-    generate_code_gemini, generate_explanation_gemini,
-    generate_rewrite_openai, generate_rewrite_gemini
+    generate_rewrite_openai
 )
 
 # ===================
 # Global Variables & Constants
 # ===================
-LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'openai').strip().lower()
 S3_BUCKET = os.environ.get('S3_BUCKET')
 if not S3_BUCKET:
     raise RuntimeError("S3_BUCKET environment variable is not set")
@@ -256,11 +254,8 @@ def generate_diagram():
             with open(rewrite_instructions_file, 'r') as f:
                 rewrite_instructions = f.read()
                 
-            # Rewrite the description using the appropriate LLM
-            if LLM_PROVIDER == 'gemini':
-                rewritten_description = generate_rewrite_gemini(description, rewrite_instructions)
-            else:
-                rewritten_description = generate_rewrite_openai(description, rewrite_instructions)
+            # Rewrite the description using OpenAI
+            rewritten_description = generate_rewrite_openai(description, rewrite_instructions)
                 
             # Use the rewritten description instead of the original
             description = rewritten_description
@@ -292,29 +287,21 @@ def generate_diagram():
         return error_response(f'Failed to read {instructions_file}: {e}', 500)
 
 
-    # Generate code with selected LLM (from env)
+    # Generate code with OpenAI
     start_llm = time.time()
     try:
-        # Logging removed
-        if LLM_PROVIDER == 'gemini':
-            # Logging removed
-            code = generate_code_gemini(description, instructions)
-            # Logging removed
-        else:
-            # Logging removed
-            code = generate_code_openai(description, instructions)
-            # Logging removed
+        # Generate code using OpenAI
+        code = generate_code_openai(description, instructions)
     except Exception as e:
         tb = traceback.format_exc()
-        # Logging removed
-        if LLM_PROVIDER == 'openai' and ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
+        if ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
             return error_response(
                 'OpenAI API quota exceeded. Please check your plan and billing at https://platform.openai.com/account/usage',
                 429,
                 raw_code_url=None,
                 sanitized_code_url=None
             )
-        return error_response(f'{LLM_PROVIDER.capitalize()} API error: {str(e)}', 500, traceback=tb)
+        return error_response(f'OpenAI API error: {str(e)}', 500, traceback=tb)
     timings['llm'] = time.time() - start_llm
 
     # Check for non-code or fallback LLM responses
@@ -520,10 +507,7 @@ def generate_diagram():
             "Code:\n"
             f"{code}"
         )
-        if LLM_PROVIDER == 'gemini':
-            explanation = generate_explanation_gemini(explanation_prompt)
-        else:
-            explanation = generate_explanation_openai(explanation_prompt)
+        explanation = generate_explanation_openai(explanation_prompt)
     except Exception as e:
         explanation = None
     timings['explanation'] = time.time() - start_explanation
@@ -661,20 +645,17 @@ def rewrite_endpoint():
     except Exception as e:
         return error_response(f'Failed to read {instructions_file}: {e}', 500)
     
-    # Generate rewritten content with selected LLM
+    # Generate rewritten content with OpenAI
     try:
-        if LLM_PROVIDER == 'gemini':
-            rewritten_content = generate_rewrite_gemini(user_input, instructions)
-        else:
-            rewritten_content = generate_rewrite_openai(user_input, instructions)
+        rewritten_content = generate_rewrite_openai(user_input, instructions)
     except Exception as e:
         tb = traceback.format_exc()
-        if LLM_PROVIDER == 'openai' and ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
+        if ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
             return error_response(
                 'OpenAI API quota exceeded. Please check your plan and billing at https://platform.openai.com/account/usage',
                 429
             )
-        return error_response(f'{LLM_PROVIDER.capitalize()} API error: {str(e)}', 500, traceback=tb)
+        return error_response(f'OpenAI API error: {str(e)}', 500, traceback=tb)
     
     # Return the rewritten content
     return jsonify({

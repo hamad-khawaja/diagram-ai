@@ -24,8 +24,7 @@ Generate a diagram from a natural language description using the diagrams librar
 **Note:**
 - The `provider` field is optional. If set to `"aws"`, `"azure"`, or `"gcp"`, the API will use cloud-specific instructions for the LLM. If omitted or unrecognized, generic instructions are used.
 - When a provider is specified, the description is automatically rewritten using cloud provider-specific terminology and best practices before diagram generation.
-- The LLM provider is selected at app startup using the `LLM_PROVIDER` environment variable (`openai` or `gemini`).
-- Set the appropriate API key as an environment variable: `OPENAI_API_KEY` for OpenAI, or `GEMINI_API_KEY` for Gemini. **Do not** include API keys in the request body.
+- Set the appropriate API key as an environment variable: `OPENAI_API_KEY`. **Do not** include API keys in the request body.
 
 
 
@@ -150,8 +149,7 @@ Rewrite user input with cloud-specific terminology and best practices based on t
 
 **Note:**
 - The `provider` field is required and must be set to one of: `"aws"`, `"azure"`, or `"gcp"`. Each provider has specific rewrite instructions.
-- The LLM provider is selected at app startup using the `LLM_PROVIDER` environment variable (`openai` or `gemini`).
-- Set the appropriate API key as an environment variable: `OPENAI_API_KEY` for OpenAI, or `GEMINI_API_KEY` for Gemini.
+- Set the appropriate API key as an environment variable: `OPENAI_API_KEY`.
 
 **Response (Success):**
 ```json
@@ -181,8 +179,8 @@ Rewrite user input with cloud-specific terminology and best practices based on t
 ---
 
 ## Troubleshooting
-- Ensure your OpenAI or Gemini API key is valid and has sufficient quota.
-- Set the `LLM_PROVIDER` environment variable to `openai` or `gemini` before starting the app.
+- Make sure you have a valid OpenAI API key with sufficient quota.
+- Set the API key before starting the app: `export OPENAI_API_KEY=your_api_key`.
 - Check `app.log` for server-side errors.
 - Make sure Graphviz and all Python dependencies are installed.
 - If diagrams are not generated, inspect the raw code in `diagrams/generated_diagram_raw.py` (or download via `raw_code_url`).

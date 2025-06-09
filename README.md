@@ -1,10 +1,10 @@
-# AI Diagram Generator API
+# This project delivers a robust, production-ready Flask API for automatically generating, validating, and explaining cloud architecture diagrams from natural language descriptions. Leveraging OpenAI's GPT-4o and the Python diagrams library, the API transforms user prompts into executable Python code, produces multi-format architecture diagrams (PNG, SVG, PDF, etc.), and generates concise technical explanations in both plain text and Markdown. The system features advanced error handling, code sanitization, and supports provider-specific (AWS, Azure, GCP) instructions. All outputs and logs are accessible via secure endpoints, making this solution ideal for integrating AI-powered diagram generation into developer tools, documentation workflows, or educational platforms.I Diagram Generator API
 
 This project delivers a robust, production-ready Flask API for automatically generating, validating, and explaining cloud architecture diagrams from natural language descriptions. Leveraging OpenAI’s GPT-4.1 and the Python diagrams library, the API transforms user prompts into executable Python code, produces multi-format architecture diagrams (PNG, SVG, PDF, etc.), and generates concise technical explanations in both plain text and Markdown. The system features advanced error handling, code sanitization, and supports provider-specific (AWS, Azure, GCP) instructions. All outputs and logs are accessible via secure endpoints, making this solution ideal for integrating AI-powered diagram generation into developer tools, documentation workflows, or educational platforms.
 
 ## Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) installed on your system
-- An OpenAI API key (for GPT-4.1 access)
+- An OpenAI API key (for GPT-4o access)
 
 ## Quick Start (Docker)
 
@@ -72,7 +72,7 @@ The API now returns URLs for all available diagram formats (PNG, SVG, PDF, DOT, 
 ---
 
 ## Features
-- **Diagram Generation**: Generate architecture diagrams from textual descriptions using OpenAI GPT-4.1 and the diagrams library.
+- **Diagram Generation**: Generate architecture diagrams from textual descriptions using OpenAI GPT-4o and the diagrams library.
 - **Code Sanitization and Whitelisting**: Ensures generated code is safe and adheres to predefined rules.
 - **Error Handling**: Logs errors and returns detailed JSON responses for debugging.
 - **Static File Serving**: Serves generated diagrams via the `/diagrams/<filename>` endpoint.
