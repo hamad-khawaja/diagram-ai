@@ -48,3 +48,34 @@ def test_rewrite_empty_user_input(client):
     resp = client.post('/rewrite', json={"user_input": "", "provider": "aws"})
     assert resp.status_code == 400
     assert b'user_input is required and must be a non-empty string' in resp.data
+
+def test_generate_with_auto_rewrite(client, monkeypatch):
+    # Mock the rewrite and generate functions to check if rewrite is called
+    rewrite_called = False
+    original_rewrite_fn = app.generate_rewrite_openai
+    
+    def mock_rewrite(*args, **kwargs):
+        nonlocal rewrite_called
+        rewrite_called = True
+        return "Rewritten content"
+    
+    # Mock code generation to avoid actual API calls
+    def mock_generate_code(*args, **kwargs):
+        return "from diagrams import Diagram\nwith Diagram('Test'):\n    pass"
+    
+    monkeypatch.setattr(app, 'generate_rewrite_openai', mock_rewrite)
+    monkeypatch.setattr(app, 'generate_code_openai', mock_generate_code)
+    
+    # Mock the subprocess.run to avoid actually running any code
+    def mock_subprocess_run(*args, **kwargs):
+        class MockResult:
+            returncode = 0
+            stderr = ""
+            stdout = ""
+        return MockResult()
+    
+    monkeypatch.setattr(app.subprocess, 'run', mock_subprocess_run)
+    
+    # Test that generate endpoint calls rewrite first
+    resp = client.post('/generate', json={"description": "test", "provider": "aws"})
+    assert rewrite_called, "Rewrite function was not called during generate"

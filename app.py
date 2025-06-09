@@ -237,7 +237,36 @@ def generate_diagram():
     if not provider:
         return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400)
 
-    # Map providers to instruction files in the /instructions directory
+    # First, run the description through the rewrite endpoint
+    try:
+        # Map providers to rewrite instruction files
+        rewrite_provider_map = {
+            'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
+            'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
+            'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
+        }
+        
+        rewrite_instructions_file = rewrite_provider_map.get(provider)
+        
+        # Verify the rewrite instructions file exists
+        if rewrite_instructions_file and os.path.exists(rewrite_instructions_file):
+            # Read the rewrite instructions
+            with open(rewrite_instructions_file, 'r') as f:
+                rewrite_instructions = f.read()
+                
+            # Rewrite the description using the appropriate LLM
+            if LLM_PROVIDER == 'gemini':
+                rewritten_description = generate_rewrite_gemini(description, rewrite_instructions)
+            else:
+                rewritten_description = generate_rewrite_openai(description, rewrite_instructions)
+                
+            # Use the rewritten description instead of the original
+            description = rewritten_description
+    except Exception as e:
+        # If rewriting fails, continue with the original description
+        print(f"Warning: Description rewriting failed: {str(e)}. Continuing with original description.")
+
+    # Map providers to instruction files in the /instructions/generate directory
     provider_map = {
         'aws': 'instructions/generate/instructions_aws.md',
         'azure': 'instructions/generate/instructions_azure.md',

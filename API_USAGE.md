@@ -23,6 +23,7 @@ Generate a diagram from a natural language description using the diagrams librar
 
 **Note:**
 - The `provider` field is optional. If set to `"aws"`, `"azure"`, or `"gcp"`, the API will use cloud-specific instructions for the LLM. If omitted or unrecognized, generic instructions are used.
+- When a provider is specified, the description is automatically rewritten using cloud provider-specific terminology and best practices before diagram generation.
 - The LLM provider is selected at app startup using the `LLM_PROVIDER` environment variable (`openai` or `gemini`).
 - Set the appropriate API key as an environment variable: `OPENAI_API_KEY` for OpenAI, or `GEMINI_API_KEY` for Gemini. **Do not** include API keys in the request body.
 

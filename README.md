@@ -78,6 +78,18 @@ The API now returns URLs for all available diagram formats (PNG, SVG, PDF, DOT, 
 - **Static File Serving**: Serves generated diagrams via the `/diagrams/<filename>` endpoint.
 - **Cloud Provider-Specific Instructions**: Supports AWS, Azure, and GCP-specific diagram generation using predefined instruction files.
 
+## Key Features
+
+1. **Natural Language to Diagram Generation**: Convert plain English descriptions into professional cloud architecture diagrams.
+
+2. **Multi-Cloud Support**: Generate diagrams for AWS, Azure, and GCP using provider-specific terminology and best practices.
+
+3. **Automatic Rewriting**: Input descriptions are automatically rewritten to use cloud provider-specific terminology and best practices before diagram generation.
+
+4. **Multi-format Output**: All diagrams are available in PNG, SVG, PDF, DOT, and JPG formats.
+
+5. **Intelligent Explanations**: Each diagram comes with an auto-generated technical explanation in plain text and Markdown.
+
 ## API Endpoints
 ### `/generate`
 - **Method**: POST
