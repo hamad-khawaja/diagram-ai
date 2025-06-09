@@ -233,15 +233,23 @@ def generate_diagram():
 
     provider = data.get('provider') if data else None
     provider = provider.strip().lower() if provider else None
+    if not provider:
+        return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400)
+
+    # Map providers to instruction files in the /instructions directory
     provider_map = {
-        'aws': 'instructions_aws.md',
-        'azure': 'instructions_azure.md',
-        'gcp': 'instructions_gcp.md'
+        'aws': 'instructions/instructions_aws.md',
+        'azure': 'instructions/instructions_azure.md',
+        'gcp': 'instructions/instructions_gcp.md'
     }
     provider_prefix = provider if provider in provider_map else 'unknown'
     instructions_file = provider_map.get(provider)
     if not instructions_file:
-        return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400)
+        return error_response('Invalid provider. Please use aws, azure, or gcp.', 400)
+
+    # Verify the instructions file exists
+    if not os.path.exists(instructions_file):
+        return error_response(f'Instructions file not found at {instructions_file}. Please check your installation.', 500)
 
 
     try:
