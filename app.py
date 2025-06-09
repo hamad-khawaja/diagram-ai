@@ -238,6 +238,8 @@ def generate_diagram():
         return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400)
 
     # First, run the description through the rewrite endpoint
+    original_description = description
+    rewritten_description = None
     try:
         # Map providers to rewrite instruction files
         rewrite_provider_map = {
@@ -265,6 +267,7 @@ def generate_diagram():
     except Exception as e:
         # If rewriting fails, continue with the original description
         print(f"Warning: Description rewriting failed: {str(e)}. Continuing with original description.")
+        rewritten_description = None
 
     # Map providers to instruction files in the /instructions/generate directory
     provider_map = {
@@ -339,6 +342,24 @@ def generate_diagram():
         shutil.rmtree(temp_upload_folder, ignore_errors=True)
         return error_response('Failed to save raw code', 500)
     timings['save_raw_code'] = time.time() - start_save_raw
+
+    # Save original and rewritten descriptions
+    start_save_inputs = time.time()
+    try:
+        # Save the original user input
+        original_input_path = os.path.join(temp_upload_folder, 'original_input.txt')
+        with open(original_input_path, 'w') as f:
+            f.write(original_description or "")
+            
+        # Save the rewritten description if it exists
+        if rewritten_description:
+            rewritten_input_path = os.path.join(temp_upload_folder, 'rewritten_input.txt')
+            with open(rewritten_input_path, 'w') as f:
+                f.write(rewritten_description)
+    except Exception as e:
+        print(f"Warning: Failed to save input descriptions: {str(e)}")
+        # Continue execution even if saving descriptions fails
+    timings['save_inputs'] = time.time() - start_save_inputs
 
     # Sanitize code
     code = re.sub(r'filename\s*=\s*["\']([^"\']+)["\']', 'filename="generated_diagram"', code)
@@ -545,16 +566,31 @@ def generate_diagram():
             raw_code_url = uploaded_files.get('generated_diagram_raw.py')
             sanitized_code_url = uploaded_files.get('generated_diagram.py')
             explanation_md_url = uploaded_files.get('generated_diagram.md')
+            
+            # Get URLs for input files if they exist
+            original_input_url = uploaded_files.get('original_input.txt')
+            rewritten_input_url = uploaded_files.get('rewritten_input.txt', None)  # May be None if rewriting failed
+            
             timings['total'] = time.time() - start_total
-            # Log timings before returning
-            return jsonify({
+            
+            # Prepare response dictionary
+            response_data = {
                 'diagram_files': urls,  # S3 URLs for images and outputs
                 'raw_code_url': raw_code_url,
                 'sanitized_code_url': sanitized_code_url,
                 'explanation': explanation,
                 'explanation_md_url': explanation_md_url,
                 'uploaded_files': uploaded_files  # all S3 URLs for all files
-            })
+            }
+            
+            # Add input URLs if they exist
+            if original_input_url:
+                response_data['original_input_url'] = original_input_url
+            if rewritten_input_url:
+                response_data['rewritten_input_url'] = rewritten_input_url
+                
+            # Return the response
+            return jsonify(response_data)
 
         # Final fallback: should never be reached, but ensures a response is always sent
         return error_response('Unknown server error', 500)
