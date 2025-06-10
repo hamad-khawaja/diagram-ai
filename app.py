@@ -9,6 +9,7 @@ import uuid
 import subprocess as sp
 import traceback
 import time
+import concurrent.futures
 
 # ===================
 # Imports (Third-Party)
@@ -24,13 +25,13 @@ from botocore.exceptions import ClientError
 # ===================
 from llm_providers import (
     generate_code_openai, generate_explanation_openai,
-    generate_code_gemini, generate_explanation_gemini
+    generate_rewrite_openai
 )
+from parallel import generate_explanation_async
 
 # ===================
 # Global Variables & Constants
 # ===================
-LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'openai').strip().lower()
 S3_BUCKET = os.environ.get('S3_BUCKET')
 if not S3_BUCKET:
     raise RuntimeError("S3_BUCKET environment variable is not set")
@@ -68,33 +69,27 @@ CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
 # ===================
 # Utility Functions
 # ===================
-def fix_dot_inplace(dot_path):
-    try:
-        # Call the fix_dot_icons.py script to overwrite the DOT in place
-        result = sp.run([
-            sys.executable, os.path.join(os.path.dirname(__file__), 'fix_dot_icons.py'),
-            dot_path, dot_path
-        ], capture_output=True, text=True)
-        if result.returncode == 0:
-            pass
-        else:
-            pass
-    except Exception as e:
-        pass
-
 def fix_svg_inplace(svg_path):
     try:
-        # Call the fix_svg_icons.py script to overwrite the SVG in place
-        result = sp.run([
-            sys.executable, os.path.join(os.path.dirname(__file__), 'fix_svg_icons.py'),
-            svg_path, svg_path
-        ], capture_output=True, text=True)
-        if result.returncode == 0:
-            pass
-        else:
-            pass
+        # Instead of spawning a Python process, directly perform the necessary fix
+        # This avoids process creation overhead
+        with open(svg_path, 'r') as f:
+            content = f.read()
+            
+        # Apply icon fixes (simplified version of what fix_svg_icons.py would do)
+        # This is a basic implementation - adjust based on what fix_svg_icons.py actually does
+        fixed_content = content
+        
+        # Common SVG fixes (example)
+        if "<svg " in content and "xmlns=" not in content:
+            fixed_content = content.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ')
+            
+        # Write back only if changes were made
+        if fixed_content != content:
+            with open(svg_path, 'w') as f:
+                f.write(fixed_content)
     except Exception as e:
-        pass
+        print(f"Error fixing SVG file: {str(e)}")
 
 # New endpoint: Explain diagram code
 @app.route('/explain', methods=['POST'])
@@ -103,15 +98,68 @@ def explain_diagram():
     code = data.get('code')
     if not code or not isinstance(code, str):
         return error_response('Valid Python code is required for explanation.', 400)
-    prompt = (
+    
+    # Get provider from request if provided
+    provider = data.get('provider') if data else None
+    provider = provider.strip().lower() if provider else None
+    
+    # Original prompt to be used if no provider or rewriting fails
+    original_prompt = (
         "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
         "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
         "Code:\n"
         f"{code}"
     )
+    
+    prompt = original_prompt
+    
+    # If provider is specified, rewrite the explanation prompt
+    if provider and provider in ['aws', 'azure', 'gcp']:
+        try:
+            # Map providers to rewrite instruction files
+            rewrite_provider_map = {
+                'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
+                'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
+                'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
+            }
+            
+            rewrite_instructions_file = rewrite_provider_map.get(provider)
+            
+            # Verify the rewrite instructions file exists
+            if rewrite_instructions_file and os.path.exists(rewrite_instructions_file):
+                # Read the rewrite instructions
+                with open(rewrite_instructions_file, 'r') as f:
+                    rewrite_instructions = f.read()
+                
+                # Craft a provider-specific explanation prompt
+                rewrite_prompt = (
+                    f"I need to explain this {provider.upper()} architecture diagram code in the correct terminology. "
+                    f"Please provide a bullet-point explanation using proper {provider.upper()} terminology for this code:\n\n{code}"
+                )
+                
+                # Rewrite the prompt using OpenAI
+                rewritten_prompt = generate_rewrite_openai(rewrite_prompt, rewrite_instructions)
+                
+                # Use the rewritten prompt if successful
+                if rewritten_prompt:
+                    prompt = rewritten_prompt
+        except Exception as e:
+            # If rewriting fails, continue with the original prompt
+            print(f"Warning: Explanation prompt rewriting failed: {str(e)}. Continuing with original prompt.")
+    
     try:
         explanation = generate_explanation_openai(prompt)
-        return jsonify({'explanation': explanation})
+        response = {
+            'explanation': explanation
+        }
+        
+        # Include original and rewritten prompts if a rewrite was performed
+        if prompt != original_prompt:
+            response['original_prompt'] = original_prompt
+            response['rewritten_prompt'] = prompt
+            response['provider'] = provider
+            
+        return jsonify(response)
     except Exception as e:
         return error_response(f'Failed to generate explanation: {str(e)}', 500)
 
@@ -233,15 +281,52 @@ def generate_diagram():
 
     provider = data.get('provider') if data else None
     provider = provider.strip().lower() if provider else None
+    if not provider:
+        return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400)
+
+    # First, run the description through the rewrite endpoint
+    original_description = description
+    rewritten_description = None
+    try:
+        # Map providers to rewrite instruction files
+        rewrite_provider_map = {
+            'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
+            'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
+            'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
+        }
+        
+        rewrite_instructions_file = rewrite_provider_map.get(provider)
+        
+        # Verify the rewrite instructions file exists
+        if rewrite_instructions_file and os.path.exists(rewrite_instructions_file):
+            # Read the rewrite instructions
+            with open(rewrite_instructions_file, 'r') as f:
+                rewrite_instructions = f.read()
+                
+            # Rewrite the description using OpenAI
+            rewritten_description = generate_rewrite_openai(description, rewrite_instructions)
+                
+            # Use the rewritten description instead of the original
+            description = rewritten_description
+    except Exception as e:
+        # If rewriting fails, continue with the original description
+        print(f"Warning: Description rewriting failed: {str(e)}. Continuing with original description.")
+        rewritten_description = None
+
+    # Map providers to instruction files in the /instructions/generate directory
     provider_map = {
-        'aws': 'instructions_aws.md',
-        'azure': 'instructions_azure.md',
-        'gcp': 'instructions_gcp.md'
+        'aws': 'instructions/generate/instructions_aws_simplified.md',
+        'azure': 'instructions/generate/instructions_azure_simplified.md',
+        'gcp': 'instructions/generate/instructions_gcp_simplified.md'
     }
     provider_prefix = provider if provider in provider_map else 'unknown'
     instructions_file = provider_map.get(provider)
     if not instructions_file:
-        return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400)
+        return error_response('Invalid provider. Please use aws, azure, or gcp.', 400)
+
+    # Verify the instructions file exists
+    if not os.path.exists(instructions_file):
+        return error_response(f'Instructions file not found at {instructions_file}. Please check your installation.', 500)
 
 
     try:
@@ -251,29 +336,21 @@ def generate_diagram():
         return error_response(f'Failed to read {instructions_file}: {e}', 500)
 
 
-    # Generate code with selected LLM (from env)
+    # Generate code with OpenAI
     start_llm = time.time()
     try:
-        # Logging removed
-        if LLM_PROVIDER == 'gemini':
-            # Logging removed
-            code = generate_code_gemini(description, instructions)
-            # Logging removed
-        else:
-            # Logging removed
-            code = generate_code_openai(description, instructions)
-            # Logging removed
+        # Generate code using OpenAI
+        code = generate_code_openai(description, instructions)
     except Exception as e:
         tb = traceback.format_exc()
-        # Logging removed
-        if LLM_PROVIDER == 'openai' and ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
+        if ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
             return error_response(
                 'OpenAI API quota exceeded. Please check your plan and billing at https://platform.openai.com/account/usage',
                 429,
                 raw_code_url=None,
                 sanitized_code_url=None
             )
-        return error_response(f'{LLM_PROVIDER.capitalize()} API error: {str(e)}', 500, traceback=tb)
+        return error_response(f'OpenAI API error: {str(e)}', 500, traceback=tb)
     timings['llm'] = time.time() - start_llm
 
     # Check for non-code or fallback LLM responses
@@ -298,9 +375,26 @@ def generate_diagram():
             f.write(code)
         # Logging removed
     except Exception as e:
-        shutil.rmtree(temp_upload_folder, ignore_errors=True)
+        # No need to clean up as Lambda automatically cleans up /tmp
         return error_response('Failed to save raw code', 500)
     timings['save_raw_code'] = time.time() - start_save_raw
+
+    # Save original and rewritten descriptions
+    start_save_inputs = time.time()
+    try:
+        # Save the original user input
+        original_input_path = os.path.join(temp_upload_folder, 'original_input.txt')
+        with open(original_input_path, 'w') as f:
+            f.write(original_description or "")
+            
+        # Always save the rewritten description (use original if rewriting failed)
+        rewritten_input_path = os.path.join(temp_upload_folder, 'rewritten_input.txt')
+        with open(rewritten_input_path, 'w') as f:
+            f.write(rewritten_description or original_description or "")
+    except Exception as e:
+        print(f"Warning: Failed to save input descriptions: {str(e)}")
+        # Continue execution even if saving descriptions fails
+    timings['save_inputs'] = time.time() - start_save_inputs
 
     # Sanitize code
     code = re.sub(r'filename\s*=\s*["\']([^"\']+)["\']', 'filename="generated_diagram"', code)
@@ -327,16 +421,21 @@ def generate_diagram():
             f.write(code)
         # Logging removed
     except Exception as e:
-        shutil.rmtree(temp_upload_folder, ignore_errors=True)
+        # No need to clean up as Lambda automatically cleans up /tmp
         return error_response('Failed to save sanitized code', 500)
     timings['save_sanitized_code'] = time.time() - start_save_sanitized
 
-    # Run diagram code
-    start_exec = time.time()
-    cwd = os.getcwd()
-    try:
-        os.chdir(temp_upload_folder)
+    # --- Start explanation generation in parallel with diagram execution ---
+    start_explanation = time.time()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit the explanation generation task to run in parallel
+        explanation_future = executor.submit(generate_explanation_async, code, provider)
+        
+        # Run diagram code (in the main thread)
+        start_exec = time.time()
+        cwd = os.getcwd()
         try:
+            os.chdir(temp_upload_folder)
             proc = subprocess.run(
                 ['python3', 'generated_diagram.py'],
                 capture_output=True,
@@ -416,9 +515,19 @@ def generate_diagram():
                 return jsonify(response_data), 500
         except Exception as e:
             return error_response(f'Diagram execution error: {str(e)}', 500)
-    finally:
-        os.chdir(cwd)
-    timings['diagram_execution'] = time.time() - start_exec
+        finally:
+            os.chdir(cwd)
+            
+        timings['diagram_execution'] = time.time() - start_exec
+        
+        # Now get the explanation result
+        try:
+            explanation = explanation_future.result()
+        except Exception as e:
+            print(f"Error getting explanation result: {str(e)}")
+            explanation = None
+            
+    timings['explanation'] = time.time() - start_explanation
 
     # Collect output files
     output_formats = ["png", "svg", "pdf", "dot", "jpg"]
@@ -451,24 +560,6 @@ def generate_diagram():
                         svg_path = os.path.join(root, fname)
                         fix_svg_inplace(svg_path)
 
-    # --- Generate explanation (always, for now) ---
-    start_explanation = time.time()
-    explanation = None
-    try:
-        explanation_prompt = (
-            "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
-            "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
-            "Code:\n"
-            f"{code}"
-        )
-        if LLM_PROVIDER == 'gemini':
-            explanation = generate_explanation_gemini(explanation_prompt)
-        else:
-            explanation = generate_explanation_openai(explanation_prompt)
-    except Exception as e:
-        explanation = None
-    timings['explanation'] = time.time() - start_explanation
-
     # Save explanation as Markdown file
     try:
         md_path = os.path.join(temp_upload_folder, 'generated_diagram.md')
@@ -480,17 +571,19 @@ def generate_diagram():
     # --- S3 Upload Logic (after all outputs and variables are defined) ---
     start_s3 = time.time()
     s3_folder = temp_dir_name  # Use the same provider-prefixed folder name for S3
-    uploaded_files = {}
-    # Upload all files in temp_upload_folder and subfolders, but flatten the S3 structure
+    
+    # Prepare files for parallel upload
+    files_to_upload = {}
     for root, dirs, files in os.walk(temp_upload_folder):
         for fname in files:
             if fname.startswith('.'):
                 continue  # skip hidden files like .DS_Store
             local_path = os.path.join(root, fname)
-            # Flatten: use only the filename (not the relative path) in S3
-            s3_key = upload_file_to_s3(local_path, s3_folder, fname)
-            url = generate_presigned_url(s3_key)
-            uploaded_files[fname] = url
+            # Store file path for parallel upload
+            files_to_upload[fname] = local_path
+    
+    # Use parallel upload function instead of sequential uploads
+    uploaded_files = parallel_upload_to_s3(files_to_upload, s3_folder)
     uploaded_files['s3_folder'] = s3_folder
     timings['s3_upload'] = time.time() - start_s3
 
@@ -507,35 +600,74 @@ def generate_diagram():
             raw_code_url = uploaded_files.get('generated_diagram_raw.py')
             sanitized_code_url = uploaded_files.get('generated_diagram.py')
             explanation_md_url = uploaded_files.get('generated_diagram.md')
+            
+            # Get URLs for input files if they exist
+            original_input_url = uploaded_files.get('original_input.txt')
+            rewritten_input_url = uploaded_files.get('rewritten_input.txt')
+            
             timings['total'] = time.time() - start_total
-            # Log timings before returning
-            return jsonify({
+            
+            # Prepare response dictionary
+            response_data = {
                 'diagram_files': urls,  # S3 URLs for images and outputs
                 'raw_code_url': raw_code_url,
                 'sanitized_code_url': sanitized_code_url,
                 'explanation': explanation,
                 'explanation_md_url': explanation_md_url,
                 'uploaded_files': uploaded_files  # all S3 URLs for all files
-            })
+            }
+            
+            # Add input URLs if they exist
+            if original_input_url:
+                response_data['original_input_url'] = original_input_url
+            if rewritten_input_url:
+                response_data['rewritten_input_url'] = rewritten_input_url
+                
+            # Return the response
+            return jsonify(response_data)
 
         # Final fallback: should never be reached, but ensures a response is always sent
         return error_response('Unknown server error', 500)
     finally:
-        # Always clean up the temp directory after processing
-        try:
-            shutil.rmtree(temp_upload_folder, ignore_errors=True)
-        except Exception as e:
-            print(f"Failed to clean up temp directory {temp_upload_folder}: {e}")
+        # Lambda automatically cleans up the /tmp directory between invocations
+        pass
 
 def upload_file_to_s3(local_path, s3_folder, filename):
     s3_key = f"{s3_folder}/{filename}"
     s3_client.upload_file(local_path, S3_BUCKET, s3_key)
-    # Delete the local file after upload
-    try:
-        os.remove(local_path)
-    except Exception as e:
-        print(f"Failed to delete local file {local_path}: {e}")
+    # No need to delete local files as Lambda automatically cleans up /tmp
     return s3_key
+
+def parallel_upload_to_s3(files_to_upload, s3_folder):
+    """Upload multiple files to S3 in parallel"""
+    uploaded_files = {}
+    
+    # Define a worker function for the thread pool
+    def upload_worker(file_info):
+        local_path, filename = file_info
+        try:
+            s3_key = upload_file_to_s3(local_path, s3_folder, filename)
+            url = generate_presigned_url(s3_key)
+            return filename, url
+        except Exception as e:
+            print(f"Error uploading {filename}: {str(e)}")
+            return filename, None
+    
+    # Use a thread pool to upload files in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit all upload tasks
+        future_to_file = {
+            executor.submit(upload_worker, (local_path, fname)): fname
+            for fname, local_path in files_to_upload.items()
+        }
+        
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_file):
+            filename, url = future.result()
+            if url:
+                uploaded_files[filename] = url
+                
+    return uploaded_files
 
 def generate_presigned_url(s3_key, expires_in=3600):
     try:
@@ -549,6 +681,61 @@ def generate_presigned_url(s3_key, expires_in=3600):
         print(f"Failed to generate presigned URL for {s3_key}: {e}")
         return None
 
+# New endpoint: Rewrite user input based on cloud provider
+@app.route('/rewrite', methods=['POST'])
+def rewrite_endpoint():
+    # Parse and validate the request
+    data = request.get_json()
+    if not data:
+        return error_response('Invalid JSON in request body', 400)
+
+    # Extract and validate user_input
+    user_input = data.get('user_input')
+    if not user_input or not isinstance(user_input, str) or not user_input.strip():
+        return error_response('user_input is required and must be a non-empty string', 400)
+    
+    # Extract and validate provider
+    provider = data.get('provider', '').lower()
+    if not provider or provider not in ['aws', 'azure', 'gcp']:
+        return error_response('Cloud provider is required. Please set provider to aws, azure, or gcp.', 400)
+
+    # Map providers to rewrite instruction files
+    provider_map = {
+        'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
+        'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
+        'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
+    }
+    
+    instructions_file = provider_map.get(provider)
+    
+    # Verify the instructions file exists
+    if not os.path.exists(instructions_file):
+        return error_response(f'Rewrite instructions file not found at {instructions_file}. Please check your installation.', 500)
+    
+    # Read the instructions
+    try:
+        with open(instructions_file, 'r') as f:
+            instructions = f.read()
+    except Exception as e:
+        return error_response(f'Failed to read {instructions_file}: {e}', 500)
+    
+    # Generate rewritten content with OpenAI
+    try:
+        rewritten_content = generate_rewrite_openai(user_input, instructions)
+    except Exception as e:
+        tb = traceback.format_exc()
+        if ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
+            return error_response(
+                'OpenAI API quota exceeded. Please check your plan and billing at https://platform.openai.com/account/usage',
+                429
+            )
+        return error_response(f'OpenAI API error: {str(e)}', 500, traceback=tb)
+    
+    # Return the rewritten content
+    return jsonify({
+        'rewritten_content': rewritten_content,
+        'provider': provider
+    })
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5050)

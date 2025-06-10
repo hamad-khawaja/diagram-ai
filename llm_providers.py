@@ -1,146 +1,82 @@
 # Standard library imports
 import os
-import threading
 import re
+import hashlib
+import json
+from functools import lru_cache
 
 # Third-party imports
-import requests
 from openai import OpenAI
 
-# Gemini model selection (auto-detect best available)
-def get_best_gemini_model():
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        print("[DEBUG] GEMINI_API_KEY missing for model selection!")
-        return "gemini-2.0-flash"
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    try:
-        resp = requests.get(endpoint)
-        print(f"[DEBUG] Gemini ListModels status: {resp.status_code}")
-        if not resp.ok:
-            print(f"[DEBUG] Gemini ListModels error: {resp.text}")
-            return "gemini-2.0-flash"
-        data = resp.json()
-        models = [m["name"] for m in data.get("models", [])]
-        # Prefer pro models, then highest version
-        pro_models = [m for m in models if "pro" in m]
-        if pro_models:
-            best = sorted(pro_models, reverse=True)[0]
-            print(f"[DEBUG] Best Gemini pro model: {best}")
-            return best
-        if models:
-            best = sorted(models, reverse=True)[0]
-            print(f"[DEBUG] Best Gemini model: {best}")
-            return best
-    except Exception as e:
-        print(f"[DEBUG] Exception in Gemini model selection: {e}")
-    return "gemini-2.0-flash"
+# Simple in-memory cache for LLM responses
+_cache = {}
 
-# Run model selection at import time (in a thread to avoid blocking startup)
-GEMINI_MODEL = "gemini-2.0-flash"
-def _set_best_gemini_model():
-    global GEMINI_MODEL
-    try:
-        GEMINI_MODEL = get_best_gemini_model()
-        print(f"[DEBUG] Using Gemini model: {GEMINI_MODEL}")
-    except Exception as e:
-        print(f"[DEBUG] Exception in Gemini model selection thread: {e}")
-        GEMINI_MODEL = "gemini-2.0-flash"
-        print(f"[DEBUG] Falling back to default Gemini model: {GEMINI_MODEL}")
-threading.Thread(target=_set_best_gemini_model, daemon=True).start()
-def generate_explanation_openai(prompt):
+def _get_cache_key(model, messages, temperature, max_tokens):
+    """Generate a cache key based on the request parameters"""
+    key_dict = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens
+    }
+    key_str = json.dumps(key_dict, sort_keys=True)
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+def openai_chat_with_cache(model, messages, temperature=0, max_tokens=15000, top_p=1, use_cache=True):
+    """Make an OpenAI API call with caching"""
+    # Generate a cache key
+    cache_key = _get_cache_key(model, messages, temperature, max_tokens)
+    
+    # Check if we have a cached response
+    if use_cache and cache_key in _cache:
+        print(f"Cache hit for {model} request")
+        return _cache[cache_key]
+    
+    # No cache hit, make the actual API call
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key or not api_key.startswith("sk-"):
         raise ValueError("OPENAI_API_KEY environment variable is missing or invalid.")
+    
     client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
-        model="gpt-4o",  # Use the more widely available gpt-4o model instead of gpt-4.1
-        messages=[
-            {"role": "system", "content": "You are a helpful cloud architecture assistant."},
-            {"role": "user", "content": prompt}
-        ],
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p
+    )
+    
+    # Cache the response
+    if use_cache:
+        _cache[cache_key] = response
+    
+    return response
+def generate_explanation_openai(prompt):
+    messages = [
+        {"role": "system", "content": "You are a helpful cloud architecture assistant."},
+        {"role": "user", "content": prompt}
+    ]
+    response = openai_chat_with_cache(
+        model="gpt-4o",
+        messages=messages,
         temperature=0,
-        max_tokens=15120,
+        max_tokens=4000,  # Reduced to be within model limits (gpt-4o supports max 4096 tokens)
         top_p=0.7
     )
     return response.choices[0].message.content.strip()
 
-
-def generate_code_gemini(description, instructions):
-    print("[DEBUG] Entered generate_code_gemini")
-    api_key = os.environ.get("GEMINI_API_KEY")
-    print(f"[DEBUG] GEMINI_API_KEY present: {bool(api_key)}")
-    if not api_key:
-        print("[DEBUG] GEMINI_API_KEY missing or invalid!")
-        raise ValueError("GEMINI_API_KEY environment variable is missing or invalid.")
-    model = GEMINI_MODEL
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key=" + api_key
-    prompt = f"{instructions}\n\nUser request: {description}"
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
-    print(f"[DEBUG] Gemini endpoint: {endpoint}")
-    print(f"[DEBUG] Gemini payload: {payload}")
-    response = requests.post(endpoint, json=payload)
-    print(f"[DEBUG] Gemini response status: {response.status_code}")
-    print(f"[DEBUG] Gemini response text: {response.text[:500]}")
-    if not response.ok:
-        raise Exception(f"Gemini API error: {response.text}")
-    data = response.json()
-    content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    return extract_python_code(content)
-
-def generate_explanation_gemini(prompt):
-    print("[DEBUG] Entered generate_explanation_gemini")
-    api_key = os.environ.get("GEMINI_API_KEY")
-    print(f"[DEBUG] GEMINI_API_KEY present: {bool(api_key)}")
-    if not api_key:
-        print("[DEBUG] GEMINI_API_KEY missing or invalid!")
-        raise ValueError("GEMINI_API_KEY environment variable is missing or invalid.")
-    model = GEMINI_MODEL
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key=" + api_key
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
-    print(f"[DEBUG] Gemini endpoint: {endpoint}")
-    print(f"[DEBUG] Gemini payload: {payload}")
-    response = requests.post(endpoint, json=payload)
-    print(f"[DEBUG] Gemini response status: {response.status_code}")
-    print(f"[DEBUG] Gemini response text: {response.text[:500]}")
-    if not response.ok:
-        raise Exception(f"Gemini API error: {response.text}")
-    data = response.json()
-    content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    return content.strip()
-
-
 def generate_code_openai(description, instructions):
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key or not api_key.startswith("sk-"):
-        raise ValueError("OPENAI_API_KEY environment variable is missing or invalid.")
-    client = OpenAI(api_key=api_key)
-    prompt = f"""{instructions}\n\nUser request: {description}"""
-    response = client.chat.completions.create(
-        model="gpt-4o",  # Use the more widely available gpt-4o model instead of gpt-4.1
-        messages=[
-            {"role": "system", "content": instructions},
-            {"role": "user", "content": description}
-        ],
+    messages = [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": description}
+    ]
+    response = openai_chat_with_cache(
+        model="gpt-4o",
+        messages=messages,
         temperature=0,
         max_tokens=15024,
-        top_p=1
+        top_p=1,
+        use_cache=False  # Disable caching for code generation to ensure freshness
     )
     content = response.choices[0].message.content
     return extract_python_code(content)
@@ -170,3 +106,20 @@ def extract_python_code(content):
     # Optionally, remove empty lines left by this
     code = '\n'.join([l for l in code.splitlines() if l.strip()])
     return code
+
+def generate_rewrite_openai(user_input, instructions):
+    """
+    Generate rewritten content using OpenAI's API based on rewrite instructions.
+    """
+    messages = [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": user_input}
+    ]
+    response = openai_chat_with_cache(
+        model="gpt-4o",
+        messages=messages,
+        temperature=0,
+        max_tokens=4000,  # Reduced to be within model limits (gpt-4o supports max 4096 tokens)
+        top_p=1
+    )
+    return response.choices[0].message.content.strip()
