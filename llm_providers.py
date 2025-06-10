@@ -57,10 +57,10 @@ def generate_explanation_openai(prompt):
         {"role": "user", "content": prompt}
     ]
     response = openai_chat_with_cache(
-        model="gpt-3.5-turbo",
+        model="gpt-4o",
         messages=messages,
         temperature=0,
-        max_tokens=4000,  # Reduced to be within model limits (GPT-3.5-Turbo supports max 4096 tokens)
+        max_tokens=4000,  # Reduced to be within model limits (gpt-4o supports max 4096 tokens)
         top_p=0.7
     )
     return response.choices[0].message.content.strip()
@@ -116,10 +116,10 @@ def generate_rewrite_openai(user_input, instructions):
         {"role": "user", "content": user_input}
     ]
     response = openai_chat_with_cache(
-        model="gpt-3.5-turbo",
+        model="gpt-4o",
         messages=messages,
         temperature=0,
-        max_tokens=4000,  # Reduced to be within model limits (GPT-3.5-Turbo supports max 4096 tokens)
+        max_tokens=4000,  # Reduced to be within model limits (gpt-4o supports max 4096 tokens)
         top_p=1
     )
     return response.choices[0].message.content.strip()

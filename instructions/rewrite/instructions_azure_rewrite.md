@@ -49,22 +49,22 @@ Rewritten: "Design an Azure architecture with:
 Required imports:
 ```python
 from diagrams.azure.general import Resourcegroups
-from diagrams.azure.network import VirtualNetwork, ApplicationGateways, TrafficManager
+from diagrams.azure.network import VirtualNetworks, ApplicationGateways, TrafficManager
 from diagrams.azure.web import AppService
 from diagrams.azure.database import SQLDatabases
 from diagrams.azure.storage import BlobStorage
-from diagrams.azure.compute import VirtualMachine
-from diagrams.azure.security import KeyVault
+from diagrams.azure.compute import VM
+from diagrams.azure.security import KeyVaultss
 ```
 
 1. A Resource Group in East US 2 containing all resources (using diagrams.azure.general.Resourcegroups)
-2. A VirtualNetwork with address space 10.0.0.0/16 containing multiple subnets (using diagrams.azure.network.VirtualNetwork)
+2. A VirtualNetwork with address space 10.0.0.0/16 containing multiple subnets (using diagrams.azure.network.VirtualNetworks)
 3. AppService deployed for hosting the web application (using diagrams.azure.web.AppService)
 4. SQLDatabases with geo-replication enabled (using diagrams.azure.database.SQLDatabases)
 5. ApplicationGateways for load balancing and SSL termination (using diagrams.azure.network.ApplicationGateways)
 6. BlobStorage for storing application assets and backups (using diagrams.azure.storage.BlobStorage)
-7. VirtualMachines for administrative access (using diagrams.azure.compute.VirtualMachine)
-8. KeyVault for secure storage of certificates and credentials (using diagrams.azure.security.KeyVault)
+7. VirtualMachines for administrative access (using diagrams.azure.compute.VM)
+8. KeyVault for secure storage of certificates and credentials (using diagrams.azure.security.KeyVaults)
 9. TrafficManager for global routing and failover capabilities (using diagrams.azure.network.TrafficManager)
 
 The architecture should follow Azure best practices as documented at https://diagrams.mingrammer.com/docs/nodes/azure"
