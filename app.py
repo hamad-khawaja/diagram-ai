@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import boto3
 from botocore.exceptions import ClientError
+import boto3.s3.transfer
 
 # ===================
 # Imports (Local)
@@ -634,12 +635,37 @@ def generate_diagram():
 
 def upload_file_to_s3(local_path, s3_folder, filename):
     s3_key = f"{s3_folder}/{filename}"
-    s3_client.upload_file(local_path, S3_BUCKET, s3_key)
-    # No need to delete local files as Lambda automatically cleans up /tmp
-    return s3_key
+    
+    # Set optimal S3 upload parameters based on file size
+    file_size = os.path.getsize(local_path)
+    config = None
+    
+    # For larger files, use optimized transfer configuration
+    if file_size > 1024 * 1024:  # 1MB
+        config = boto3.s3.transfer.TransferConfig(
+            multipart_threshold=1024 * 1024 * 5,  # 5MB
+            max_concurrency=5,
+            use_threads=True
+        )
+    
+    try:
+        # Use transfer with retry logic for reliability
+        s3_client.upload_file(local_path, S3_BUCKET, s3_key, Config=config)
+        # No need to delete local files as Lambda automatically cleans up /tmp
+        return s3_key
+    except Exception as e:
+        print(f"Error uploading {filename}: {str(e)}")
+        # Retry once with exponential backoff
+        try:
+            time.sleep(0.5)
+            s3_client.upload_file(local_path, S3_BUCKET, s3_key, Config=config)
+            return s3_key
+        except Exception as retry_e:
+            print(f"Retry failed for {filename}: {str(retry_e)}")
+            return None
 
 def parallel_upload_to_s3(files_to_upload, s3_folder):
-    """Upload multiple files to S3 in parallel"""
+    """Upload multiple files to S3 in parallel with optimized performance"""
     uploaded_files = {}
     
     # Define a worker function for the thread pool
@@ -647,19 +673,41 @@ def parallel_upload_to_s3(files_to_upload, s3_folder):
         local_path, filename = file_info
         try:
             s3_key = upload_file_to_s3(local_path, s3_folder, filename)
-            url = generate_presigned_url(s3_key)
-            return filename, url
+            if s3_key:
+                url = generate_presigned_url(s3_key)
+                return filename, url
+            return filename, None
         except Exception as e:
             print(f"Error uploading {filename}: {str(e)}")
             return filename, None
     
+    # Calculate optimal number of workers based on file count
+    file_count = len(files_to_upload)
+    max_workers = min(20, max(file_count, 5))  # Between 5-20 workers
+    
     # Use a thread pool to upload files in parallel
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        # Submit all upload tasks
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Group files by size to prioritize smaller files first
+        small_files = {}
+        large_files = {}
+        
+        for fname, local_path in files_to_upload.items():
+            if os.path.getsize(local_path) < 1024 * 1024:  # 1MB
+                small_files[fname] = local_path
+            else:
+                large_files[fname] = local_path
+        
+        # Submit small files first
         future_to_file = {
             executor.submit(upload_worker, (local_path, fname)): fname
-            for fname, local_path in files_to_upload.items()
+            for fname, local_path in small_files.items()
         }
+        
+        # Add large files to the queue
+        future_to_file.update({
+            executor.submit(upload_worker, (local_path, fname)): fname
+            for fname, local_path in large_files.items()
+        })
         
         # Collect results as they complete
         for future in concurrent.futures.as_completed(future_to_file):
