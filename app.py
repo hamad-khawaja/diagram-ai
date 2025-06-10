@@ -10,6 +10,8 @@ import subprocess as sp
 import traceback
 import time
 import concurrent.futures
+import threading
+import queue
 
 # ===================
 # Imports (Third-Party)
@@ -36,7 +38,23 @@ from parallel import generate_explanation_async
 S3_BUCKET = os.environ.get('S3_BUCKET')
 if not S3_BUCKET:
     raise RuntimeError("S3_BUCKET environment variable is not set")
-s3_client = boto3.client("s3")
+
+# Global explanation queue and result cache
+# This allows for completely independent parallel processing of explanations
+EXPLANATION_QUEUE = queue.Queue()
+EXPLANATION_RESULTS = {}
+EXPLANATION_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="explanation_worker")
+
+# Configure S3 client with optimized settings
+session = boto3.session.Session()
+s3_client = session.client(
+    's3',
+    config=boto3.session.Config(
+        signature_version='s3v4',
+        retries={'max_attempts': 3, 'mode': 'standard'},
+        max_pool_connections=50
+    )
+)
 
 # Define global UPLOAD_FOLDER - use /tmp for Lambda
 # Check if running in Lambda environment
@@ -204,7 +222,25 @@ def index():
 
 # --- Shared error response helper ---
 def error_response(message, status=400, **kwargs):
-    # Logging removed
+    # Include timing information if available
+    if 'timings' in kwargs:
+        # Format timing information
+        timings = kwargs.get('timings', {})
+        formatted_timings = {
+            key: f"{value:.2f}s" for key, value in timings.items()
+        }
+        kwargs['performance'] = {'timings': formatted_timings}
+        
+        # Print performance data to console
+        print("Performance Summary (Error Response):")
+        print(f"Total execution time: {formatted_timings.get('total', 'N/A')}")
+        for key, value in formatted_timings.items():
+            if key != 'total':
+                print(f"{key}: {value}")
+                
+        # Remove raw timing data from response
+        kwargs.pop('timings', None)
+    
     resp = {'error': message}
     resp.update(kwargs)
     return jsonify(resp), status
@@ -261,31 +297,86 @@ from llm_providers import generate_code_openai, generate_explanation_openai
 def generate_diagram():
     print("request.data:", request.data)
     print("request.json:", request.json)
-    timings = {}
+    
+    # Initialize detailed timing dictionary with all possible steps
+    timings = {
+        'start_time': time.time(),
+        'request_processing': 0,
+        'input_validation': 0,
+        'description_rewriting': 0,
+        'instruction_loading': 0,
+        'llm': 0,
+        'save_raw_code': 0,
+        'save_inputs': 0,
+        'code_sanitization': 0,
+        'save_sanitized_code': 0,
+        'temp_dir_creation': 0,
+        'diagram_execution': 0,
+        'explanation': 0,
+        'file_collection': 0,
+        's3_upload': 0,
+        'response_preparation': 0,
+        'total': 0,
+        'unaccounted': 0  # Time not explicitly tracked by the steps above
+    }
+    
+    # Track every step with timestamps for detailed analysis
+    timestamps = {
+        'start': time.time(),
+        'steps': []
+    }
+    
+    def record_step(step_name):
+        now = time.time()
+        timestamps['steps'].append({
+            'step': step_name,
+            'time': now,
+            'elapsed_since_start': now - timestamps['start'],
+            'elapsed_since_last': now - (timestamps['steps'][-1]['time'] if timestamps['steps'] else timestamps['start'])
+        })
+        
+    record_step('start')
     start_total = time.time()
+    start_request = time.time()
 
     # LLM code generation
-    start = time.time()
     # Predefine code URLs for error handling
     raw_code_url = '/diagrams/generated_diagram_raw.py'
     sanitized_code_url = '/diagrams/generated_diagram.py'
     import re, subprocess, traceback, resource
     from diagrams_whitelist import is_code_whitelisted
 
+    # Parse input data and validate
+    record_step('parsing_request_start')
+    start_input_validation = time.time()
     data = request.json
     description = data.get('description') if data else None
+    timings['request_processing'] = time.time() - start_request
+    record_step('parsing_request_end')
+
     if not isinstance(description, str) or not description.strip():
-        return error_response('Description must be a non-empty string.', 400)
+        timings['input_validation'] = time.time() - start_input_validation
+        timings['total'] = time.time() - start_total
+        return error_response('Description must be a non-empty string.', 400, timings=timings)
     if len(description) > 15000:
-        return error_response('Description is too long (max 15000 chars).', 400)
+        timings['input_validation'] = time.time() - start_input_validation
+        timings['total'] = time.time() - start_total
+        return error_response('Description is too long (max 15000 chars).', 400, timings=timings)
 
 
     provider = data.get('provider') if data else None
     provider = provider.strip().lower() if provider else None
     if not provider:
-        return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400)
+        timings['input_validation'] = time.time() - start_input_validation
+        timings['total'] = time.time() - start_total
+        return error_response('No cloud provider specified. Please set provider to aws, azure, or gcp.', 400, timings=timings)
+
+    timings['input_validation'] = time.time() - start_input_validation
+    record_step('validation_complete')
 
     # First, run the description through the rewrite endpoint
+    record_step('rewrite_start')
+    start_rewrite = time.time()
     original_description = description
     rewritten_description = None
     try:
@@ -313,8 +404,13 @@ def generate_diagram():
         # If rewriting fails, continue with the original description
         print(f"Warning: Description rewriting failed: {str(e)}. Continuing with original description.")
         rewritten_description = None
+    
+    timings['description_rewriting'] = time.time() - start_rewrite
+    record_step('rewrite_complete')
 
     # Map providers to instruction files in the /instructions/generate directory
+    record_step('instruction_loading_start')
+    start_instruction_loading = time.time()
     provider_map = {
         'aws': 'instructions/generate/instructions_aws_simplified.md',
         'azure': 'instructions/generate/instructions_azure_simplified.md',
@@ -323,43 +419,68 @@ def generate_diagram():
     provider_prefix = provider if provider in provider_map else 'unknown'
     instructions_file = provider_map.get(provider)
     if not instructions_file:
-        return error_response('Invalid provider. Please use aws, azure, or gcp.', 400)
+        timings['total'] = time.time() - start_total
+        return error_response('Invalid provider. Please use aws, azure, or gcp.', 400, timings=timings)
 
     # Verify the instructions file exists
     if not os.path.exists(instructions_file):
-        return error_response(f'Instructions file not found at {instructions_file}. Please check your installation.', 500)
+        timings['total'] = time.time() - start_total
+        return error_response(f'Instructions file not found at {instructions_file}. Please check your installation.', 500, timings=timings)
 
 
     try:
         with open(instructions_file, 'r') as f:
             instructions = f.read()
+        timings['instruction_loading'] = time.time() - start_instruction_loading
+        record_step('instruction_loading_complete')
     except Exception as e:
-        return error_response(f'Failed to read {instructions_file}: {e}', 500)
+        timings['instruction_loading'] = time.time() - start_instruction_loading
+        timings['total'] = time.time() - start_total
+        record_step('instruction_loading_failed')
+        return error_response(f'Failed to read {instructions_file}: {e}', 500, timings=timings)
 
 
     # Generate code with OpenAI
+    record_step('llm_generation_start')
     start_llm = time.time()
     try:
         # Generate code using OpenAI
         code = generate_code_openai(description, instructions)
+        record_step('llm_generation_complete')
     except Exception as e:
         tb = traceback.format_exc()
+        timings['llm'] = time.time() - start_llm
+        timings['total'] = time.time() - start_total
+        record_step('llm_generation_failed')
+        
         if ((hasattr(e, 'status_code') and e.status_code == 429) or 'quota' in str(e).lower() or 'rate limit' in str(e).lower()):
             return error_response(
                 'OpenAI API quota exceeded. Please check your plan and billing at https://platform.openai.com/account/usage',
                 429,
                 raw_code_url=None,
-                sanitized_code_url=None
+                sanitized_code_url=None,
+                timings=timings
             )
-        return error_response(f'OpenAI API error: {str(e)}', 500, traceback=tb)
+        return error_response(f'OpenAI API error: {str(e)}', 500, traceback=tb, timings=timings)
     timings['llm'] = time.time() - start_llm
+
+    # Start explanation generation in a completely separate background process
+    # This allows it to run independently from the main flow
+    record_step('parallel_explanation_start')
+    start_explanation = time.time()
+    # Submit the explanation job to the background worker
+    explanation_job_id = submit_explanation_job(code, provider)
+    print(f"Submitted explanation job {explanation_job_id} to background worker")
 
     # Check for non-code or fallback LLM responses
     if code.strip().lower().startswith("sorry") or not ("import" in code or "with Diagram" in code):
         user_msg = code.strip().splitlines()[0] if code.strip() else "The model could not generate valid code for your request."
-        return error_response(f"The model could not generate valid code for your request: {user_msg}", 422)
+        timings['total'] = time.time() - start_total
+        return error_response(f"The model could not generate valid code for your request: {user_msg}", 422, timings=timings)
 
     # --- Per-request temp directory, prefixed by provider ---
+    record_step('temp_dir_creation_start')
+    start_temp_dir = time.time()
     import tempfile, shutil
     temp_uuid = str(uuid.uuid4())
     temp_dir_name = f"{provider_prefix}-{temp_uuid}"
@@ -367,8 +488,11 @@ def generate_diagram():
     # Create a Lambda-safe path using our helper function
     temp_upload_folder = get_lambda_safe_path(os.path.join('diagrams', temp_dir_name))
     os.makedirs(temp_upload_folder, exist_ok=True)
+    timings['temp_dir_creation'] = time.time() - start_temp_dir
+    record_step('temp_dir_creation_complete')
 
     # Save raw code
+    record_step('save_raw_code_start')
     start_save_raw = time.time()
     raw_code_path = os.path.join(temp_upload_folder, 'generated_diagram_raw.py')
     try:
@@ -377,10 +501,15 @@ def generate_diagram():
         # Logging removed
     except Exception as e:
         # No need to clean up as Lambda automatically cleans up /tmp
-        return error_response('Failed to save raw code', 500)
+        timings['save_raw_code'] = time.time() - start_save_raw
+        timings['total'] = time.time() - start_total
+        record_step('save_raw_code_failed')
+        return error_response('Failed to save raw code', 500, timings=timings)
     timings['save_raw_code'] = time.time() - start_save_raw
+    record_step('save_raw_code_complete')
 
     # Save original and rewritten descriptions
+    record_step('save_inputs_start')
     start_save_inputs = time.time()
     try:
         # Save the original user input
@@ -396,8 +525,11 @@ def generate_diagram():
         print(f"Warning: Failed to save input descriptions: {str(e)}")
         # Continue execution even if saving descriptions fails
     timings['save_inputs'] = time.time() - start_save_inputs
+    record_step('save_inputs_complete')
 
     # Sanitize code
+    record_step('code_sanitization_start')
+    start_sanitize = time.time()
     code = re.sub(r'filename\s*=\s*["\']([^"\']+)["\']', 'filename="generated_diagram"', code)
     code = re.sub(r'outformat\s*=\s*["\']([^"\']+)["\']', 'outformat="png"', code)
     # Always inject show=False into every with Diagram(...) statement
@@ -413,8 +545,11 @@ def generate_diagram():
                 args = 'show=False'
         return f'with Diagram({args})'
     code = re.sub(r'with Diagram\(([^)]*)\)', _inject_show_false, code)
+    timings['code_sanitization'] = time.time() - start_sanitize
+    record_step('code_sanitization_complete')
 
     # Save sanitized code before running it!
+    record_step('save_sanitized_code_start')
     start_save_sanitized = time.time()
     sanitized_code_path = os.path.join(temp_upload_folder, 'generated_diagram.py')
     try:
@@ -423,114 +558,152 @@ def generate_diagram():
         # Logging removed
     except Exception as e:
         # No need to clean up as Lambda automatically cleans up /tmp
-        return error_response('Failed to save sanitized code', 500)
+        timings['save_sanitized_code'] = time.time() - start_save_sanitized
+        timings['total'] = time.time() - start_total
+        record_step('save_sanitized_code_failed')
+        return error_response('Failed to save sanitized code', 500, timings=timings)
     timings['save_sanitized_code'] = time.time() - start_save_sanitized
+    record_step('save_sanitized_code_complete')
 
-    # --- Start explanation generation in parallel with diagram execution ---
-    start_explanation = time.time()
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        # Submit the explanation generation task to run in parallel
-        explanation_future = executor.submit(generate_explanation_async, code, provider)
-        
-        # Run diagram code (in the main thread)
-        start_exec = time.time()
-        cwd = os.getcwd()
-        try:
-            os.chdir(temp_upload_folder)
-            proc = subprocess.run(
-                ['python3', 'generated_diagram.py'],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            if proc.returncode != 0:
-                # If it's a SyntaxError or the code is not valid Python, return 422
-                if 'SyntaxError' in proc.stderr or 'invalid syntax' in proc.stderr:
-                    response_data = {
-                        'error': 'Diagram code execution failed due to invalid or non-Python code.',
-                        'stderr': proc.stderr,
-                        'stdout': proc.stdout,
-                        'raw_code_url': raw_code_url,
-                        'sanitized_code_url': sanitized_code_url
-                    }
-                    return jsonify(response_data), 422
-                # If it's a TypeError for list >> list, return a user-friendly error
-                if 'TypeError' in proc.stderr and 'unsupported operand type(s) for >>' in proc.stderr:
-                    response_data = {
-                        'error': 'Diagram code execution failed: You cannot use >> between lists of nodes. Connect nodes individually or use a nested loop.',
-                        'stderr': proc.stderr,
-                        'stdout': proc.stdout,
-                        'raw_code_url': raw_code_url,
-                        'sanitized_code_url': sanitized_code_url
-                    }
-                    return jsonify(response_data), 422
-                # Try to return the diagram if it was generated, even if there was an error
-                image_candidates = []
-                try:
-                    with open('generated_diagram.py', 'r') as f:
-                        code_content = f.read()
-                    m = re.search(r'filename\s*=\s*["\']([^"\']+)["\']', code_content)
-                    if m:
-                        base = m.group(1)
-                        base_png = base if base.endswith('.png') else base + '.png'
-                        image_candidates.append(base_png)
-                        image_candidates.append(os.path.basename(base_png))
-                    else:
-                        m2 = re.search(r'with Diagram\((?:["\'])(.*?)(?:["\'])', code_content)
-                        if m2:
-                            title = m2.group(1)
-                            title_clean = title.lower().replace(' ', '_').replace('/', '_')
-                            image_candidates.append(title_clean + '.png')
-                except Exception as e:
-                    print(f"Could not infer image filename from code: {e}")
-                for candidate in image_candidates:
-                    if os.path.exists(candidate):
-                        image_url = f'/diagrams/{candidate.replace(os.sep, "/")}'
-                        response_data = {
-                            'diagram_path': candidate,
-                            'image_url': image_url,
-                            'error': 'Diagram code execution failed',
-                            'stderr': proc.stderr,
-                            'stdout': proc.stdout
-                        }
-                        return jsonify(response_data), 206
-                # Fallback: search for any .png in folder
-                for fname in os.listdir('.'):
-                    if fname.endswith('.png'):
-                        image_url = f'/diagrams/{fname.replace(os.sep, "/")}'
-                        response_data = {
-                            'diagram_path': fname,
-                            'image_url': image_url,
-                            'error': 'Diagram code execution failed',
-                            'stderr': proc.stderr,
-                            'stdout': proc.stdout
-                        }
-                        return jsonify(response_data), 206
+    # Run diagram code
+    record_step('diagram_execution_start')
+    start_exec = time.time()
+    cwd = os.getcwd()
+    try:
+        os.chdir(temp_upload_folder)
+        proc = subprocess.run(
+            ['python3', 'generated_diagram.py'],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        if proc.returncode != 0:
+            timings['diagram_execution'] = time.time() - start_exec
+            timings['total'] = time.time() - start_total
+            
+            # Shutdown the executor before returning on error
+            
+            # If it's a SyntaxError or the code is not valid Python, return 422
+            if 'SyntaxError' in proc.stderr or 'invalid syntax' in proc.stderr:
                 response_data = {
-                    'error': 'Diagram code execution failed',
+                    'error': 'Diagram code execution failed due to invalid or non-Python code.',
                     'stderr': proc.stderr,
                     'stdout': proc.stdout,
                     'raw_code_url': raw_code_url,
-                    'sanitized_code_url': sanitized_code_url
+                    'sanitized_code_url': sanitized_code_url,
+                    'performance': {
+                        'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
+                    }
                 }
-                return jsonify(response_data), 500
-        except Exception as e:
-            return error_response(f'Diagram execution error: {str(e)}', 500)
-        finally:
-            os.chdir(cwd)
-            
+                return jsonify(response_data), 422
+            # If it's a TypeError for list >> list, return a user-friendly error
+            if 'TypeError' in proc.stderr and 'unsupported operand type(s) for >>' in proc.stderr:
+                response_data = {
+                    'error': 'Diagram code execution failed: You cannot use >> between lists of nodes. Connect nodes individually or use a nested loop.',
+                    'stderr': proc.stderr,
+                    'stdout': proc.stdout,
+                    'raw_code_url': raw_code_url,
+                    'sanitized_code_url': sanitized_code_url,
+                    'performance': {
+                        'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
+                    }
+                }
+                return jsonify(response_data), 422
+            # Try to return the diagram if it was generated, even if there was an error
+            image_candidates = []
+            try:
+                with open('generated_diagram.py', 'r') as f:
+                    code_content = f.read()
+                m = re.search(r'filename\s*=\s*["\']([^"\']+)["\']', code_content)
+                if m:
+                    base = m.group(1)
+                    base_png = base if base.endswith('.png') else base + '.png'
+                    image_candidates.append(base_png)
+                    image_candidates.append(os.path.basename(base_png))
+                else:
+                    m2 = re.search(r'with Diagram\((?:["\'])(.*?)(?:["\'])', code_content)
+                    if m2:
+                        title = m2.group(1)
+                        title_clean = title.lower().replace(' ', '_').replace('/', '_')
+                        image_candidates.append(title_clean + '.png')
+            except Exception as e:
+                print(f"Could not infer image filename from code: {e}")
+            for candidate in image_candidates:
+                if os.path.exists(candidate):
+                    image_url = f'/diagrams/{candidate.replace(os.sep, "/")}'
+                    response_data = {
+                        'diagram_path': candidate,
+                        'image_url': image_url,
+                        'error': 'Diagram code execution failed',
+                        'stderr': proc.stderr,
+                        'stdout': proc.stdout,
+                        'performance': {
+                            'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
+                        }
+                    }
+                    return jsonify(response_data), 206
+            # Fallback: search for any .png in folder
+            for fname in os.listdir('.'):
+                if fname.endswith('.png'):
+                    image_url = f'/diagrams/{fname.replace(os.sep, "/")}'
+                    response_data = {
+                        'diagram_path': fname,
+                        'image_url': image_url,
+                        'error': 'Diagram code execution failed',
+                        'stderr': proc.stderr,
+                        'stdout': proc.stdout,
+                        'performance': {
+                            'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
+                        }
+                    }
+                    return jsonify(response_data), 206
+            response_data = {
+                'error': 'Diagram code execution failed',
+                'stderr': proc.stderr,
+                'stdout': proc.stdout,
+                'raw_code_url': raw_code_url,
+                'sanitized_code_url': sanitized_code_url,
+                'performance': {
+                    'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
+                }
+            }
+            return jsonify(response_data), 500
+    except Exception as e:
         timings['diagram_execution'] = time.time() - start_exec
+        timings['total'] = time.time() - start_total
+        return error_response(f'Diagram execution error: {str(e)}', 500, timings=timings)
+    finally:
+        os.chdir(cwd)
         
-        # Now get the explanation result
-        try:
-            explanation = explanation_future.result()
-        except Exception as e:
-            print(f"Error getting explanation result: {str(e)}")
-            explanation = None
-            
+    timings['diagram_execution'] = time.time() - start_exec
+    record_step('diagram_execution_complete')
+    
+    # Now get the explanation result
+    record_step('get_explanation_result_start')
+    try:
+        # Get the result from our background processing system with a short timeout
+        # This should return immediately if the result is ready, or a placeholder if not
+        explanation_result = get_explanation_result(explanation_job_id, timeout=0.5)
+        explanation = explanation_result['result']
+        
+        if explanation_result['error'] == 'timeout':
+            print(f"Explanation generation is still in progress (job {explanation_job_id})")
+            record_step('get_explanation_result_pending')
+        else:
+            print(f"Got explanation result for job {explanation_job_id} (took {explanation_result['time_taken']:.2f}s)")
+            record_step('get_explanation_result_complete')
+    except Exception as e:
+        print(f"Error getting explanation result: {str(e)}")
+        explanation = f"Explanation generation failed: {str(e)}"
+        record_step('get_explanation_result_failed')
+        
+    # Calculate explanation time from when we started it
     timings['explanation'] = time.time() - start_explanation
+    record_step('parallel_explanation_complete')
 
     # Collect output files
+    record_step('file_collection_start')
+    start_file_collection = time.time()
     output_formats = ["png", "svg", "pdf", "dot", "jpg"]
     base_names = set()
     try:
@@ -568,26 +741,42 @@ def generate_diagram():
             f.write(explanation or "(No explanation generated)")
     except Exception as e:
         print(f"Failed to save explanation markdown: {e}")
+        
+    timings['file_collection'] = time.time() - start_file_collection
+    record_step('file_collection_complete')
 
     # --- S3 Upload Logic (after all outputs and variables are defined) ---
+    record_step('s3_upload_start')
     start_s3 = time.time()
     s3_folder = temp_dir_name  # Use the same provider-prefixed folder name for S3
     
-    # Prepare files for parallel upload
+    # Prepare files for parallel upload - use a more efficient approach
     files_to_upload = {}
     for root, dirs, files in os.walk(temp_upload_folder):
         for fname in files:
             if fname.startswith('.'):
                 continue  # skip hidden files like .DS_Store
+                
+            # Get the full local path
             local_path = os.path.join(root, fname)
-            # Store file path for parallel upload
-            files_to_upload[fname] = local_path
+            
+            # Calculate relative path from temp_upload_folder
+            rel_path = os.path.relpath(local_path, temp_upload_folder)
+            
+            # For files directly in temp_upload_folder, use filename as key
+            # For files in subdirectories, preserve their path
+            upload_key = rel_path
+            files_to_upload[upload_key] = local_path
     
-    # Use parallel upload function instead of sequential uploads
+    # Immediately start the upload process in parallel
     uploaded_files = parallel_upload_to_s3(files_to_upload, s3_folder)
     uploaded_files['s3_folder'] = s3_folder
     timings['s3_upload'] = time.time() - start_s3
+    record_step('s3_upload_complete')
 
+    # Prepare the response
+    record_step('response_preparation_start')
+    start_response_prep = time.time()
     try:
         if base_names:
             # Map file extensions to S3 URLs for diagram_files
@@ -606,7 +795,49 @@ def generate_diagram():
             original_input_url = uploaded_files.get('original_input.txt')
             rewritten_input_url = uploaded_files.get('rewritten_input.txt')
             
+            # Calculate total execution time
             timings['total'] = time.time() - start_total
+            
+            # Calculate unaccounted time - time not explicitly measured by individual steps
+            measured_time = 0
+            for key, value in timings.items():
+                if key not in ['total', 'unaccounted', 'start_time']:
+                    measured_time += value
+            timings['unaccounted'] = timings['total'] - measured_time
+            
+            # Format timing information for display
+            formatted_timings = {
+                key: f"{value:.2f}s" for key, value in timings.items()
+            }
+            
+            # Add detailed step timestamps for debugging
+            step_timing_analysis = []
+            for i in range(1, len(timestamps['steps'])):
+                prev_step = timestamps['steps'][i-1]
+                curr_step = timestamps['steps'][i]
+                step_timing_analysis.append({
+                    'from': prev_step['step'],
+                    'to': curr_step['step'],
+                    'elapsed': f"{curr_step['time'] - prev_step['time']:.2f}s",
+                    'cumulative': f"{curr_step['elapsed_since_start']:.2f}s"
+                })
+            
+            # Add file counts and sizes for S3 upload analysis
+            file_stats = {
+                'file_count': len(files_to_upload),
+                'total_size_mb': sum(os.path.getsize(path) for path in files_to_upload.values()) / (1024 * 1024),
+                'upload_speed_mb_per_s': (sum(os.path.getsize(path) for path in files_to_upload.values()) / (1024 * 1024)) / timings['s3_upload'] if timings['s3_upload'] > 0 else 0
+            }
+            formatted_file_stats = {
+                'file_count': file_stats['file_count'],
+                'total_size_mb': f"{file_stats['total_size_mb']:.2f} MB",
+                'upload_speed_mb_per_s': f"{file_stats['upload_speed_mb_per_s']:.2f} MB/s"
+            }
+            
+            # Add URL generation stats if available
+            url_gen_stats = uploaded_files.pop('__url_gen_stats', None)
+            if url_gen_stats:
+                formatted_file_stats['url_generation'] = url_gen_stats
             
             # Prepare response dictionary
             response_data = {
@@ -615,14 +846,57 @@ def generate_diagram():
                 'sanitized_code_url': sanitized_code_url,
                 'explanation': explanation,
                 'explanation_md_url': explanation_md_url,
-                'uploaded_files': uploaded_files  # all S3 URLs for all files
+                'explanation_status': 'complete' if not (explanation and explanation.startswith("Explanation generation")) else 'pending',
+                'uploaded_files': uploaded_files,  # all S3 URLs for all files
+                'performance': {
+                    'timings': formatted_timings,
+                    'file_stats': formatted_file_stats,
+                    'detailed_timing': step_timing_analysis
+                }
             }
+            
+            timings['response_preparation'] = time.time() - start_response_prep
+            record_step('response_preparation_complete')
             
             # Add input URLs if they exist
             if original_input_url:
                 response_data['original_input_url'] = original_input_url
             if rewritten_input_url:
                 response_data['rewritten_input_url'] = rewritten_input_url
+                
+            # Print performance data to console for monitoring
+            print("\n------ Performance Summary ------")
+            print(f"Total execution time: {formatted_timings['total']}")
+            print(f"Unaccounted time: {formatted_timings['unaccounted']} ({(timings['unaccounted']/timings['total']*100):.1f}% of total)")
+            print("\nMajor Operations:")
+            print(f"  LLM generation time: {formatted_timings['llm']}")
+            print(f"  Explanation generation time: {formatted_timings.get('explanation', 'N/A')}")
+            print(f"  Diagram execution time: {formatted_timings.get('diagram_execution', 'N/A')}")
+            print(f"  S3 upload time: {formatted_timings['s3_upload']} ({formatted_file_stats['file_count']} files, {formatted_file_stats['total_size_mb']}, {formatted_file_stats['upload_speed_mb_per_s']})")
+            
+            # Find the explanation-related steps for detailed analysis
+            explanation_steps = []
+            for step in step_timing_analysis:
+                if 'explanation' in step['from'].lower() or 'explanation' in step['to'].lower():
+                    explanation_steps.append(step)
+            
+            if explanation_steps:
+                print("\nExplanation Generation Steps:")
+                for step in explanation_steps:
+                    print(f"  {step['from']} → {step['to']}: {step['elapsed']} (cumulative: {step['cumulative']})")
+            
+            if url_gen_stats:
+                print(f"  Presigned URL generation: {url_gen_stats['total_time']} for {url_gen_stats['count']} URLs (avg: {url_gen_stats['avg_time']} per URL)")
+            
+            print("\nDetailed Step Timing:")
+            for step in step_timing_analysis:
+                print(f"  {step['from']} → {step['to']}: {step['elapsed']} (cumulative: {step['cumulative']})")
+            
+            print("\nAll Timing Data:")
+            for key, value in sorted(formatted_timings.items()):
+                if key not in ['total', 'unaccounted', 'start_time']:
+                    print(f"  {key}: {value}")
+            print("-------------------------------\n")
                 
             # Return the response
             return jsonify(response_data)
@@ -638,27 +912,61 @@ def upload_file_to_s3(local_path, s3_folder, filename):
     
     # Set optimal S3 upload parameters based on file size
     file_size = os.path.getsize(local_path)
-    config = None
+    start_time = time.time()
     
-    # For larger files, use optimized transfer configuration
-    if file_size > 1024 * 1024:  # 1MB
-        config = boto3.s3.transfer.TransferConfig(
-            multipart_threshold=1024 * 1024 * 5,  # 5MB
-            max_concurrency=5,
-            use_threads=True
-        )
+    # Track specific phases of the upload
+    phases = {
+        'prepare': 0,
+        'upload': 0,
+        'retry': 0,
+        'total': 0
+    }
+    
+    phase_start = time.time()
+    
+    # Use an optimized transfer config for all uploads
+    # Lowering multipart_threshold to 1MB to use multipart uploads more often
+    # Increasing max_concurrency for better parallelization
+    config = boto3.s3.transfer.TransferConfig(
+        multipart_threshold=1024 * 1024,  # 1MB
+        max_concurrency=10,
+        use_threads=True,
+        max_io_queue=20
+    )
+    
+    phases['prepare'] = time.time() - phase_start
     
     try:
         # Use transfer with retry logic for reliability
+        phase_start = time.time()
         s3_client.upload_file(local_path, S3_BUCKET, s3_key, Config=config)
+        phases['upload'] = time.time() - phase_start
+        
+        # Log upload time for large files
+        upload_time = time.time() - start_time
+        upload_speed = file_size / (upload_time * 1024 * 1024) if upload_time > 0 else 0
+        if file_size > 1024 * 1024:  # Log only for files > 1MB
+            print(f"Uploaded {filename} ({file_size/1024/1024:.2f} MB) in {upload_time:.2f}s ({upload_speed:.2f} MB/s)")
+            
+            # Log phase breakdown for large files
+            phase_percents = {k: f"{v/upload_time*100:.1f}%" for k, v in phases.items() if k != 'total'}
+            print(f"  Phases: {phase_percents}")
+        
         # No need to delete local files as Lambda automatically cleans up /tmp
+        phases['total'] = time.time() - start_time
         return s3_key
     except Exception as e:
         print(f"Error uploading {filename}: {str(e)}")
-        # Retry once with exponential backoff
+        # Retry with exponential backoff
         try:
+            phase_start = time.time()
             time.sleep(0.5)
             s3_client.upload_file(local_path, S3_BUCKET, s3_key, Config=config)
+            phases['retry'] = time.time() - phase_start
+            
+            upload_time = time.time() - start_time
+            print(f"Retry succeeded for {filename} ({file_size/1024/1024:.2f} MB) in {upload_time:.2f}s")
+            phases['total'] = upload_time
             return s3_key
         except Exception as retry_e:
             print(f"Retry failed for {filename}: {str(retry_e)}")
@@ -668,62 +976,105 @@ def parallel_upload_to_s3(files_to_upload, s3_folder):
     """Upload multiple files to S3 in parallel with optimized performance"""
     uploaded_files = {}
     
+    # Track time spent generating presigned URLs
+    url_gen_total_time = 0
+    url_gen_count = 0
+    
     # Define a worker function for the thread pool
     def upload_worker(file_info):
+        nonlocal url_gen_total_time, url_gen_count
         local_path, filename = file_info
         try:
+            # Time the S3 upload
+            upload_start = time.time()
             s3_key = upload_file_to_s3(local_path, s3_folder, filename)
+            upload_time = time.time() - upload_start
+            
             if s3_key:
+                # Time the presigned URL generation
+                url_gen_start = time.time()
                 url = generate_presigned_url(s3_key)
-                return filename, url
-            return filename, None
+                url_gen_time = time.time() - url_gen_start
+                
+                # Track URL generation statistics
+                url_gen_total_time += url_gen_time
+                url_gen_count += 1
+                
+                return filename, url, upload_time, url_gen_time
+            return filename, None, upload_time, 0
         except Exception as e:
             print(f"Error uploading {filename}: {str(e)}")
-            return filename, None
+            return filename, None, 0, 0
     
-    # Calculate optimal number of workers based on file count
+    # Optimize the number of workers based on file count and system resources
     file_count = len(files_to_upload)
-    max_workers = min(20, max(file_count, 5))  # Between 5-20 workers
+    # Use more workers for better parallelization, but cap at a reasonable limit
+    max_workers = min(32, max(file_count, 10))
+    
+    # Sort files by priority to upload important files first
+    priority_files = []
+    normal_files = []
+    
+    for fname, local_path in files_to_upload.items():
+        # Prioritize PNG files (main diagram output) and small files
+        if fname.endswith('.png') or (os.path.getsize(local_path) < 100 * 1024):  # Less than 100KB
+            priority_files.append((local_path, fname))
+        else:
+            normal_files.append((local_path, fname))
+    
+    # Combine lists with priority files first
+    all_files = priority_files + normal_files
     
     # Use a thread pool to upload files in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Group files by size to prioritize smaller files first
-        small_files = {}
-        large_files = {}
-        
-        for fname, local_path in files_to_upload.items():
-            if os.path.getsize(local_path) < 1024 * 1024:  # 1MB
-                small_files[fname] = local_path
-            else:
-                large_files[fname] = local_path
-        
-        # Submit small files first
+        # Submit all files for upload
         future_to_file = {
-            executor.submit(upload_worker, (local_path, fname)): fname
-            for fname, local_path in small_files.items()
+            executor.submit(upload_worker, file_info): file_info[1]  # filename is file_info[1]
+            for file_info in all_files
         }
         
-        # Add large files to the queue
-        future_to_file.update({
-            executor.submit(upload_worker, (local_path, fname)): fname
-            for fname, local_path in large_files.items()
-        })
-        
-        # Collect results as they complete
+        # Process results as they complete
         for future in concurrent.futures.as_completed(future_to_file):
-            filename, url = future.result()
+            filename, url, upload_time, url_gen_time = future.result()
             if url:
                 uploaded_files[filename] = url
-                
+    
+    # Add URL generation statistics to the result
+    if url_gen_count > 0:
+        avg_url_gen_time = url_gen_total_time / url_gen_count
+        print(f"Presigned URL stats: generated {url_gen_count} URLs in {url_gen_total_time:.2f}s " +
+              f"(avg: {avg_url_gen_time:.4f}s per URL, total: {url_gen_total_time:.2f}s)")
+        
+        # Add stats to the result dictionary
+        uploaded_files['__url_gen_stats'] = {
+            'count': url_gen_count,
+            'total_time': f"{url_gen_total_time:.2f}s",
+            'avg_time': f"{avg_url_gen_time:.4f}s"
+        }
+    
     return uploaded_files
 
 def generate_presigned_url(s3_key, expires_in=3600):
     try:
+        # Track time for generating the presigned URL
+        url_gen_start = time.time()
+        
+        # Use a longer expiration time to reduce the need for regenerating URLs
         url = s3_client.generate_presigned_url(
             'get_object',
-            Params={'Bucket': S3_BUCKET, 'Key': s3_key},
+            Params={
+                'Bucket': S3_BUCKET, 
+                'Key': s3_key,
+                'ResponseContentDisposition': f'inline; filename="{os.path.basename(s3_key)}"'
+            },
             ExpiresIn=expires_in
         )
+        
+        url_gen_time = time.time() - url_gen_start
+        # Log if it's taking a long time (over 100ms)
+        if url_gen_time > 0.1:
+            print(f"Slow presigned URL generation for {s3_key}: {url_gen_time:.2f}s")
+        
         return url
     except ClientError as e:
         print(f"Failed to generate presigned URL for {s3_key}: {e}")
@@ -784,6 +1135,119 @@ def rewrite_endpoint():
         'rewritten_content': rewritten_content,
         'provider': provider
     })
+
+# Start background worker for explanation generation
+def explanation_worker():
+    """Background worker that processes explanation requests from the queue"""
+    print("Starting explanation worker thread")
+    while True:
+        try:
+            # Get a task from the queue with a timeout
+            task = EXPLANATION_QUEUE.get(timeout=1)
+            if task is None:  # Special signal to terminate
+                break
+                
+            job_id, code, provider = task
+            print(f"Processing explanation job {job_id}")
+            start_time = time.time()
+            
+            try:
+                # Generate the explanation
+                explanation = generate_explanation_async(code, provider)
+                
+                # Store the result
+                EXPLANATION_RESULTS[job_id] = {
+                    'result': explanation,
+                    'error': None,
+                    'time_taken': time.time() - start_time
+                }
+                print(f"Completed explanation job {job_id} in {time.time() - start_time:.2f}s")
+            except Exception as e:
+                print(f"Error processing explanation job {job_id}: {str(e)}")
+                EXPLANATION_RESULTS[job_id] = {
+                    'result': None,
+                    'error': str(e),
+                    'time_taken': time.time() - start_time
+                }
+                
+            # Mark task as done
+            EXPLANATION_QUEUE.task_done()
+        except queue.Empty:
+            # No tasks in queue, continue polling
+            continue
+        except Exception as e:
+            print(f"Error in explanation worker: {str(e)}")
+            # Continue processing other jobs
+            continue
+
+# Start the worker thread
+explanation_thread = threading.Thread(target=explanation_worker, daemon=True)
+explanation_thread.start()
+
+# Register a function to clean up background threads when the app exits
+import atexit
+
+@atexit.register
+def cleanup_background_threads():
+    """Clean up background threads when the app exits"""
+    print("Shutting down background workers...")
+    # Signal workers to terminate
+    EXPLANATION_QUEUE.put(None)
+    # Wait for workers to finish current tasks (up to 2 seconds)
+    explanation_thread.join(timeout=2)
+    # Shut down the thread pool
+    EXPLANATION_EXECUTOR.shutdown(wait=False)
+    print("Background workers shutdown complete")
+
+# Function to submit a new explanation job
+def submit_explanation_job(code, provider):
+    """Submit a new explanation job to be processed in the background"""
+    job_id = str(uuid.uuid4())
+    EXPLANATION_QUEUE.put((job_id, code, provider))
+    return job_id
+
+# Function to get explanation result, with timeout
+def get_explanation_result(job_id, timeout=5.0):
+    """Get the result of an explanation job, with timeout"""
+    start_wait = time.time()
+    while (time.time() - start_wait) < timeout:
+        if job_id in EXPLANATION_RESULTS:
+            result = EXPLANATION_RESULTS.pop(job_id)  # Get and remove the result
+            return result
+        time.sleep(0.1)  # Short sleep to avoid CPU spinning
+    
+    # Timeout occurred
+    return {
+        'result': f"Explanation generation is taking longer than expected. Please check back later.",
+        'error': "timeout",
+        'time_taken': timeout
+    }
+
+# New endpoint: Check explanation status
+@app.route('/check_explanation/<job_id>', methods=['GET'])
+def check_explanation(job_id):
+    """Check the status of a previously submitted explanation job"""
+    # Get the result with a short timeout
+    explanation_result = get_explanation_result(job_id, timeout=0.1)
+    
+    # Prepare the response
+    if explanation_result['error'] == 'timeout':
+        return jsonify({
+            'status': 'pending',
+            'message': 'Explanation is still being generated'
+        })
+    elif explanation_result['error']:
+        return jsonify({
+            'status': 'error',
+            'message': f"Error generating explanation: {explanation_result['error']}",
+            'time_taken': f"{explanation_result['time_taken']:.2f}s"
+        }), 500
+    else:
+        return jsonify({
+            'status': 'complete',
+            'explanation': explanation_result['result'],
+            'time_taken': f"{explanation_result['time_taken']:.2f}s"
+        })
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5050)
