@@ -7,9 +7,6 @@
 **Description:**
 Generate a diagram from a natural language description using the diagrams library and OpenAI API.
 
-
-
-
 **Request Body (JSON):**
 ```
 {
@@ -17,9 +14,6 @@ Generate a diagram from a natural language description using the diagrams librar
   "provider": "aws"        // Optional: "aws", "azure", or "gcp". If omitted or invalid, defaults to generic instructions.
 }
 ```
-
-
-
 
 **Note:**
 - The `provider` field is optional. If set to `"aws"`, `"azure"`, or `"gcp"`, the API will use cloud-specific instructions for the LLM. If omitted or unrecognized, generic instructions are used.
