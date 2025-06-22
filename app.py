@@ -97,25 +97,25 @@ CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
 # ===================
 def fix_svg_inplace(svg_path):
     try:
-        # Instead of spawning a Python process, directly perform the necessary fix
-        # This avoids process creation overhead
-        with open(svg_path, 'r') as f:
-            content = f.read()
-            
-        # Apply icon fixes (simplified version of what fix_svg_icons.py would do)
-        # This is a basic implementation - adjust based on what fix_svg_icons.py actually does
-        fixed_content = content
+        # Create a temporary output path
+        output_path = svg_path + '.fixed'
         
-        # Common SVG fixes (example)
-        if "<svg " in content and "xmlns=" not in content:
-            fixed_content = content.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ')
+        # Run the fix_svg_icons.py script
+        proc = sp.run(
+            ['python3', 'fix_svg_icons.py', svg_path, output_path],
+            capture_output=True,
+            text=True
+        )
+        
+        if proc.returncode == 0:
+            # Success - replace original with fixed version
+            os.replace(output_path, svg_path)
+            logger.info(f"Fixed SVG file: {svg_path}")
+        else:
+            logger.error(f"Failed to fix SVG {svg_path}: {proc.stderr}")
             
-        # Write back only if changes were made
-        if fixed_content != content:
-            with open(svg_path, 'w') as f:
-                f.write(fixed_content)
     except Exception as e:
-        print(f"Error fixing SVG file: {str(e)}")
+        logger.error(f"Error fixing SVG file {svg_path}: {str(e)}")
 
 
 
@@ -211,6 +211,7 @@ def serve_diagram_file(filename):
                 content_type = 'image/png'  # Default
                 if filename.endswith('.svg'):
                     content_type = 'image/svg+xml'
+                    # SVG files are already fixed at generation time, serve as-is
                 elif filename.endswith('.pdf'):
                     content_type = 'application/pdf'
                 elif filename.endswith('.dot'):
