@@ -51,19 +51,6 @@ def openai_chat_with_cache(model, messages, temperature=0, max_tokens=15000, top
         _cache[cache_key] = response
     
     return response
-def generate_explanation_openai(prompt):
-    messages = [
-        {"role": "system", "content": "You are a helpful cloud architecture assistant."},
-        {"role": "user", "content": prompt}
-    ]
-    response = openai_chat_with_cache(
-        model="gpt-4o",
-        messages=messages,
-        temperature=0,
-        max_tokens=4000,  # Reduced to be within model limits (gpt-4o supports max 4096 tokens)
-        top_p=0.7
-    )
-    return response.choices[0].message.content.strip()
 
 def generate_code_openai(description, instructions):
     messages = [

@@ -12,6 +12,7 @@ import time
 import concurrent.futures
 import threading
 import queue
+import logging
 
 # ===================
 # Imports (Third-Party)
@@ -27,10 +28,20 @@ import boto3.s3.transfer
 # Imports (Local)
 # ===================
 from llm_providers import (
-    generate_code_openai, generate_explanation_openai,
+    generate_code_openai,
     generate_rewrite_openai
 )
-from parallel import generate_explanation_async
+
+# Configure logging to display all output and ensure flushing
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    force=True,
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # ===================
 # Global Variables & Constants
@@ -39,11 +50,7 @@ S3_BUCKET = os.environ.get('S3_BUCKET')
 if not S3_BUCKET:
     raise RuntimeError("S3_BUCKET environment variable is not set")
 
-# Global explanation queue and result cache
-# This allows for completely independent parallel processing of explanations
-EXPLANATION_QUEUE = queue.Queue()
-EXPLANATION_RESULTS = {}
-EXPLANATION_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="explanation_worker")
+
 
 # Configure S3 client with optimized settings
 session = boto3.session.Session()
@@ -110,77 +117,7 @@ def fix_svg_inplace(svg_path):
     except Exception as e:
         print(f"Error fixing SVG file: {str(e)}")
 
-# New endpoint: Explain diagram code
-@app.route('/explain', methods=['POST'])
-def explain_diagram():
-    data = request.json
-    code = data.get('code')
-    if not code or not isinstance(code, str):
-        return error_response('Valid Python code is required for explanation.', 400)
-    
-    # Get provider from request if provided
-    provider = data.get('provider') if data else None
-    provider = provider.strip().lower() if provider else None
-    
-    # Original prompt to be used if no provider or rewriting fails
-    original_prompt = (
-        "Given the following diagrams Python code, provide a short, detailed, bullet-point explanation "
-        "of the flow and architecture. Be concise but clear. Do not exceed 8 bullet points.\n\n"
-        "Code:\n"
-        f"{code}"
-    )
-    
-    prompt = original_prompt
-    
-    # If provider is specified, rewrite the explanation prompt
-    if provider and provider in ['aws', 'azure', 'gcp']:
-        try:
-            # Map providers to rewrite instruction files
-            rewrite_provider_map = {
-                'aws': 'instructions/rewrite/instructions_aws_rewrite.md',
-                'azure': 'instructions/rewrite/instructions_azure_rewrite.md',
-                'gcp': 'instructions/rewrite/instructions_gcp_rewrite.md'
-            }
-            
-            rewrite_instructions_file = rewrite_provider_map.get(provider)
-            
-            # Verify the rewrite instructions file exists
-            if rewrite_instructions_file and os.path.exists(rewrite_instructions_file):
-                # Read the rewrite instructions
-                with open(rewrite_instructions_file, 'r') as f:
-                    rewrite_instructions = f.read()
-                
-                # Craft a provider-specific explanation prompt
-                rewrite_prompt = (
-                    f"I need to explain this {provider.upper()} architecture diagram code in the correct terminology. "
-                    f"Please provide a bullet-point explanation using proper {provider.upper()} terminology for this code:\n\n{code}"
-                )
-                
-                # Rewrite the prompt using OpenAI
-                rewritten_prompt = generate_rewrite_openai(rewrite_prompt, rewrite_instructions)
-                
-                # Use the rewritten prompt if successful
-                if rewritten_prompt:
-                    prompt = rewritten_prompt
-        except Exception as e:
-            # If rewriting fails, continue with the original prompt
-            print(f"Warning: Explanation prompt rewriting failed: {str(e)}. Continuing with original prompt.")
-    
-    try:
-        explanation = generate_explanation_openai(prompt)
-        response = {
-            'explanation': explanation
-        }
-        
-        # Include original and rewritten prompts if a rewrite was performed
-        if prompt != original_prompt:
-            response['original_prompt'] = original_prompt
-            response['rewritten_prompt'] = prompt
-            response['provider'] = provider
-            
-        return jsonify(response)
-    except Exception as e:
-        return error_response(f'Failed to generate explanation: {str(e)}', 500)
+
 
 
 @app.route('/health', methods=['GET'])
@@ -222,27 +159,33 @@ def index():
 
 # --- Shared error response helper ---
 def error_response(message, status=400, **kwargs):
-    # Include timing information if available
+    # Include timing information in logs if available
     if 'timings' in kwargs:
         # Format timing information
         timings = kwargs.get('timings', {})
         formatted_timings = {
             key: f"{value:.2f}s" for key, value in timings.items()
         }
-        kwargs['performance'] = {'timings': formatted_timings}
         
-        # Print performance data to console
+        # Print performance data to console only
         print("Performance Summary (Error Response):")
-        print(f"Total execution time: {formatted_timings.get('total', 'N/A')}")
+        logger.info(f"Total execution time: {formatted_timings.get('total', 'N/A')}")
         for key, value in formatted_timings.items():
             if key != 'total':
                 print(f"{key}: {value}")
                 
-        # Remove raw timing data from response
+        # Remove timing data before sending response
         kwargs.pop('timings', None)
+        if 'raw_code_url' in kwargs:
+            kwargs['code_urls'] = {
+                'raw': kwargs.pop('raw_code_url'),
+                'sanitized': kwargs.pop('sanitized_code_url', None)
+            }
     
     resp = {'error': message}
-    resp.update(kwargs)
+    for key, value in kwargs.items():
+        if key not in ['timings', 'raw_code_url', 'sanitized_code_url']:
+            resp[key] = value
     return jsonify(resp), status
 
 # Static file serving for diagrams folder with error handling and logging
@@ -290,8 +233,6 @@ def serve_diagram_file(filename):
 
 
 
-from llm_providers import generate_code_openai, generate_explanation_openai
-
 @app.route('/generate', methods=['POST'])
 
 def generate_diagram():
@@ -312,7 +253,6 @@ def generate_diagram():
         'save_sanitized_code': 0,
         'temp_dir_creation': 0,
         'diagram_execution': 0,
-        'explanation': 0,
         'file_collection': 0,
         's3_upload': 0,
         'response_preparation': 0,
@@ -464,13 +404,7 @@ def generate_diagram():
         return error_response(f'OpenAI API error: {str(e)}', 500, traceback=tb, timings=timings)
     timings['llm'] = time.time() - start_llm
 
-    # Start explanation generation in a completely separate background process
-    # This allows it to run independently from the main flow
-    record_step('parallel_explanation_start')
-    start_explanation = time.time()
-    # Submit the explanation job to the background worker
-    explanation_job_id = submit_explanation_job(code, provider)
-    print(f"Submitted explanation job {explanation_job_id} to background worker")
+
 
     # Check for non-code or fallback LLM responses
     if code.strip().lower().startswith("sorry") or not ("import" in code or "with Diagram" in code):
@@ -589,10 +523,9 @@ def generate_diagram():
                     'error': 'Diagram code execution failed due to invalid or non-Python code.',
                     'stderr': proc.stderr,
                     'stdout': proc.stdout,
-                    'raw_code_url': raw_code_url,
-                    'sanitized_code_url': sanitized_code_url,
-                    'performance': {
-                        'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
+                    'code_urls': {
+                        'raw': raw_code_url,
+                        'sanitized': sanitized_code_url
                     }
                 }
                 return jsonify(response_data), 422
@@ -602,10 +535,9 @@ def generate_diagram():
                     'error': 'Diagram code execution failed: You cannot use >> between lists of nodes. Connect nodes individually or use a nested loop.',
                     'stderr': proc.stderr,
                     'stdout': proc.stdout,
-                    'raw_code_url': raw_code_url,
-                    'sanitized_code_url': sanitized_code_url,
-                    'performance': {
-                        'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
+                    'code_urls': {
+                        'raw': raw_code_url,
+                        'sanitized': sanitized_code_url
                     }
                 }
                 return jsonify(response_data), 422
@@ -636,10 +568,7 @@ def generate_diagram():
                         'image_url': image_url,
                         'error': 'Diagram code execution failed',
                         'stderr': proc.stderr,
-                        'stdout': proc.stdout,
-                        'performance': {
-                            'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
-                        }
+                        'stdout': proc.stdout
                     }
                     return jsonify(response_data), 206
             # Fallback: search for any .png in folder
@@ -661,10 +590,9 @@ def generate_diagram():
                 'error': 'Diagram code execution failed',
                 'stderr': proc.stderr,
                 'stdout': proc.stdout,
-                'raw_code_url': raw_code_url,
-                'sanitized_code_url': sanitized_code_url,
-                'performance': {
-                    'timings': {key: f"{value:.2f}s" for key, value in timings.items()}
+                'code_urls': {
+                    'raw': raw_code_url,
+                    'sanitized': sanitized_code_url
                 }
             }
             return jsonify(response_data), 500
@@ -678,28 +606,7 @@ def generate_diagram():
     timings['diagram_execution'] = time.time() - start_exec
     record_step('diagram_execution_complete')
     
-    # Now get the explanation result
-    record_step('get_explanation_result_start')
-    try:
-        # Get the result from our background processing system with a short timeout
-        # This should return immediately if the result is ready, or a placeholder if not
-        explanation_result = get_explanation_result(explanation_job_id, timeout=0.5)
-        explanation = explanation_result['result']
-        
-        if explanation_result['error'] == 'timeout':
-            print(f"Explanation generation is still in progress (job {explanation_job_id})")
-            record_step('get_explanation_result_pending')
-        else:
-            print(f"Got explanation result for job {explanation_job_id} (took {explanation_result['time_taken']:.2f}s)")
-            record_step('get_explanation_result_complete')
-    except Exception as e:
-        print(f"Error getting explanation result: {str(e)}")
-        explanation = f"Explanation generation failed: {str(e)}"
-        record_step('get_explanation_result_failed')
-        
-    # Calculate explanation time from when we started it
-    timings['explanation'] = time.time() - start_explanation
-    record_step('parallel_explanation_complete')
+
 
     # Collect output files
     record_step('file_collection_start')
@@ -734,14 +641,6 @@ def generate_diagram():
                         svg_path = os.path.join(root, fname)
                         fix_svg_inplace(svg_path)
 
-    # Save explanation as Markdown file
-    try:
-        md_path = os.path.join(temp_upload_folder, 'generated_diagram.md')
-        with open(md_path, 'w') as f:
-            f.write(explanation or "(No explanation generated)")
-    except Exception as e:
-        print(f"Failed to save explanation markdown: {e}")
-        
     timings['file_collection'] = time.time() - start_file_collection
     record_step('file_collection_complete')
 
@@ -789,7 +688,6 @@ def generate_diagram():
             # Use S3 URLs for code and markdown files
             raw_code_url = uploaded_files.get('generated_diagram_raw.py')
             sanitized_code_url = uploaded_files.get('generated_diagram.py')
-            explanation_md_url = uploaded_files.get('generated_diagram.md')
             
             # Get URLs for input files if they exist
             original_input_url = uploaded_files.get('original_input.txt')
@@ -844,15 +742,7 @@ def generate_diagram():
                 'diagram_files': urls,  # S3 URLs for images and outputs
                 'raw_code_url': raw_code_url,
                 'sanitized_code_url': sanitized_code_url,
-                'explanation': explanation,
-                'explanation_md_url': explanation_md_url,
-                'explanation_status': 'complete' if not (explanation and explanation.startswith("Explanation generation")) else 'pending',
-                'uploaded_files': uploaded_files,  # all S3 URLs for all files
-                'performance': {
-                    'timings': formatted_timings,
-                    'file_stats': formatted_file_stats,
-                    'detailed_timing': step_timing_analysis
-                }
+                'uploaded_files': uploaded_files  # all S3 URLs for all files
             }
             
             timings['response_preparation'] = time.time() - start_response_prep
@@ -864,39 +754,27 @@ def generate_diagram():
             if rewritten_input_url:
                 response_data['rewritten_input_url'] = rewritten_input_url
                 
-            # Print performance data to console for monitoring
-            print("\n------ Performance Summary ------")
-            print(f"Total execution time: {formatted_timings['total']}")
-            print(f"Unaccounted time: {formatted_timings['unaccounted']} ({(timings['unaccounted']/timings['total']*100):.1f}% of total)")
-            print("\nMajor Operations:")
-            print(f"  LLM generation time: {formatted_timings['llm']}")
-            print(f"  Explanation generation time: {formatted_timings.get('explanation', 'N/A')}")
-            print(f"  Diagram execution time: {formatted_timings.get('diagram_execution', 'N/A')}")
-            print(f"  S3 upload time: {formatted_timings['s3_upload']} ({formatted_file_stats['file_count']} files, {formatted_file_stats['total_size_mb']}, {formatted_file_stats['upload_speed_mb_per_s']})")
-            
-            # Find the explanation-related steps for detailed analysis
-            explanation_steps = []
-            for step in step_timing_analysis:
-                if 'explanation' in step['from'].lower() or 'explanation' in step['to'].lower():
-                    explanation_steps.append(step)
-            
-            if explanation_steps:
-                print("\nExplanation Generation Steps:")
-                for step in explanation_steps:
-                    print(f"  {step['from']} → {step['to']}: {step['elapsed']} (cumulative: {step['cumulative']})")
+            # Log performance data to console for monitoring
+            logger.info("\n------ Performance Summary ------")
+            logger.info(f"Total execution time: {formatted_timings['total']}")
+            logger.info(f"Unaccounted time: {formatted_timings['unaccounted']} ({(timings['unaccounted']/timings['total']*100):.1f}% of total)")
+            logger.info("\nMajor Operations:")
+            logger.info(f"  LLM generation time: {formatted_timings['llm']}")
+            logger.info(f"  Diagram execution time: {formatted_timings.get('diagram_execution', 'N/A')}")
+            logger.info(f"  S3 upload time: {formatted_timings['s3_upload']} ({formatted_file_stats['file_count']} files, {formatted_file_stats['total_size_mb']}, {formatted_file_stats['upload_speed_mb_per_s']})")
             
             if url_gen_stats:
-                print(f"  Presigned URL generation: {url_gen_stats['total_time']} for {url_gen_stats['count']} URLs (avg: {url_gen_stats['avg_time']} per URL)")
+                logger.info(f"  Presigned URL generation: {url_gen_stats['total_time']} for {url_gen_stats['count']} URLs (avg: {url_gen_stats['avg_time']} per URL)")
             
-            print("\nDetailed Step Timing:")
+            logger.info("\nDetailed Step Timing:")
             for step in step_timing_analysis:
-                print(f"  {step['from']} → {step['to']}: {step['elapsed']} (cumulative: {step['cumulative']})")
+                logger.info(f"  {step['from']} → {step['to']}: {step['elapsed']} (cumulative: {step['cumulative']})")
             
-            print("\nAll Timing Data:")
+            logger.info("\nAll Timing Data:")
             for key, value in sorted(formatted_timings.items()):
                 if key not in ['total', 'unaccounted', 'start_time']:
-                    print(f"  {key}: {value}")
-            print("-------------------------------\n")
+                    logger.info(f"  {key}: {value}")
+            logger.info("-------------------------------\n")
                 
             # Return the response
             return jsonify(response_data)
@@ -946,7 +824,7 @@ def upload_file_to_s3(local_path, s3_folder, filename):
         upload_time = time.time() - start_time
         upload_speed = file_size / (upload_time * 1024 * 1024) if upload_time > 0 else 0
         if file_size > 1024 * 1024:  # Log only for files > 1MB
-            print(f"Uploaded {filename} ({file_size/1024/1024:.2f} MB) in {upload_time:.2f}s ({upload_speed:.2f} MB/s)")
+            logger.info(f"Uploaded {filename} ({file_size/1024/1024:.2f} MB) in {upload_time:.2f}s ({upload_speed:.2f} MB/s)")
             
             # Log phase breakdown for large files
             phase_percents = {k: f"{v/upload_time*100:.1f}%" for k, v in phases.items() if k != 'total'}
@@ -965,7 +843,7 @@ def upload_file_to_s3(local_path, s3_folder, filename):
             phases['retry'] = time.time() - phase_start
             
             upload_time = time.time() - start_time
-            print(f"Retry succeeded for {filename} ({file_size/1024/1024:.2f} MB) in {upload_time:.2f}s")
+            logger.info(f"Retry succeeded for {filename} ({file_size/1024/1024:.2f} MB) in {upload_time:.2f}s")
             phases['total'] = upload_time
             return s3_key
         except Exception as retry_e:
@@ -1042,7 +920,7 @@ def parallel_upload_to_s3(files_to_upload, s3_folder):
     # Add URL generation statistics to the result
     if url_gen_count > 0:
         avg_url_gen_time = url_gen_total_time / url_gen_count
-        print(f"Presigned URL stats: generated {url_gen_count} URLs in {url_gen_total_time:.2f}s " +
+        logger.info(f"Presigned URL stats: generated {url_gen_count} URLs in {url_gen_total_time:.2f}s " +
               f"(avg: {avg_url_gen_time:.4f}s per URL, total: {url_gen_total_time:.2f}s)")
         
         # Add stats to the result dictionary
@@ -1073,7 +951,7 @@ def generate_presigned_url(s3_key, expires_in=3600):
         url_gen_time = time.time() - url_gen_start
         # Log if it's taking a long time (over 100ms)
         if url_gen_time > 0.1:
-            print(f"Slow presigned URL generation for {s3_key}: {url_gen_time:.2f}s")
+            logger.info(f"Slow presigned URL generation for {s3_key}: {url_gen_time:.2f}s")
         
         return url
     except ClientError as e:
@@ -1136,118 +1014,7 @@ def rewrite_endpoint():
         'provider': provider
     })
 
-# Start background worker for explanation generation
-def explanation_worker():
-    """Background worker that processes explanation requests from the queue"""
-    print("Starting explanation worker thread")
-    while True:
-        try:
-            # Get a task from the queue with a timeout
-            task = EXPLANATION_QUEUE.get(timeout=1)
-            if task is None:  # Special signal to terminate
-                break
-                
-            job_id, code, provider = task
-            print(f"Processing explanation job {job_id}")
-            start_time = time.time()
-            
-            try:
-                # Generate the explanation
-                explanation = generate_explanation_async(code, provider)
-                
-                # Store the result
-                EXPLANATION_RESULTS[job_id] = {
-                    'result': explanation,
-                    'error': None,
-                    'time_taken': time.time() - start_time
-                }
-                print(f"Completed explanation job {job_id} in {time.time() - start_time:.2f}s")
-            except Exception as e:
-                print(f"Error processing explanation job {job_id}: {str(e)}")
-                EXPLANATION_RESULTS[job_id] = {
-                    'result': None,
-                    'error': str(e),
-                    'time_taken': time.time() - start_time
-                }
-                
-            # Mark task as done
-            EXPLANATION_QUEUE.task_done()
-        except queue.Empty:
-            # No tasks in queue, continue polling
-            continue
-        except Exception as e:
-            print(f"Error in explanation worker: {str(e)}")
-            # Continue processing other jobs
-            continue
 
-# Start the worker thread
-explanation_thread = threading.Thread(target=explanation_worker, daemon=True)
-explanation_thread.start()
-
-# Register a function to clean up background threads when the app exits
-import atexit
-
-@atexit.register
-def cleanup_background_threads():
-    """Clean up background threads when the app exits"""
-    print("Shutting down background workers...")
-    # Signal workers to terminate
-    EXPLANATION_QUEUE.put(None)
-    # Wait for workers to finish current tasks (up to 2 seconds)
-    explanation_thread.join(timeout=2)
-    # Shut down the thread pool
-    EXPLANATION_EXECUTOR.shutdown(wait=False)
-    print("Background workers shutdown complete")
-
-# Function to submit a new explanation job
-def submit_explanation_job(code, provider):
-    """Submit a new explanation job to be processed in the background"""
-    job_id = str(uuid.uuid4())
-    EXPLANATION_QUEUE.put((job_id, code, provider))
-    return job_id
-
-# Function to get explanation result, with timeout
-def get_explanation_result(job_id, timeout=5.0):
-    """Get the result of an explanation job, with timeout"""
-    start_wait = time.time()
-    while (time.time() - start_wait) < timeout:
-        if job_id in EXPLANATION_RESULTS:
-            result = EXPLANATION_RESULTS.pop(job_id)  # Get and remove the result
-            return result
-        time.sleep(0.1)  # Short sleep to avoid CPU spinning
-    
-    # Timeout occurred
-    return {
-        'result': f"Explanation generation is taking longer than expected. Please check back later.",
-        'error': "timeout",
-        'time_taken': timeout
-    }
-
-# New endpoint: Check explanation status
-@app.route('/check_explanation/<job_id>', methods=['GET'])
-def check_explanation(job_id):
-    """Check the status of a previously submitted explanation job"""
-    # Get the result with a short timeout
-    explanation_result = get_explanation_result(job_id, timeout=0.1)
-    
-    # Prepare the response
-    if explanation_result['error'] == 'timeout':
-        return jsonify({
-            'status': 'pending',
-            'message': 'Explanation is still being generated'
-        })
-    elif explanation_result['error']:
-        return jsonify({
-            'status': 'error',
-            'message': f"Error generating explanation: {explanation_result['error']}",
-            'time_taken': f"{explanation_result['time_taken']:.2f}s"
-        }), 500
-    else:
-        return jsonify({
-            'status': 'complete',
-            'explanation': explanation_result['result'],
-            'time_taken': f"{explanation_result['time_taken']:.2f}s"
-        })
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5050)

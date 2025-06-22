@@ -1,0 +1,30 @@
+To design a simple 3-tier AWS architecture using Amazon EC2 and Amazon Aurora, follow these steps:
+
+Required imports:
+```python
+from diagrams.aws.network import VPC, ALB, Route53, Nacl
+from diagrams.aws.compute import EC2
+from diagrams.aws.database import RDS
+from diagrams.aws.security import IAM
+```
+
+1. **VPC Configuration**:
+   - Create a VPC in the `us-east-1` region with public and private subnets across two availability zones (using `diagrams.aws.network.VPC`).
+
+2. **Presentation Tier**:
+   - Deploy EC2 instances in the public subnets to host the web application. These instances should be behind an Application Load Balancer (ALB) for distributing incoming traffic (using `diagrams.aws.compute.EC2` and `diagrams.aws.network.ALB`).
+
+3. **Application Tier**:
+   - Use additional EC2 instances in the private subnets to run the application logic. These instances should communicate with the database tier securely (using `diagrams.aws.compute.EC2`).
+
+4. **Database Tier**:
+   - Deploy Amazon Aurora in the private subnets for high availability and scalability of the database (using `diagrams.aws.database.RDS`).
+
+5. **Networking and Security**:
+   - Use Route53 for DNS management to route traffic to the ALB (using `diagrams.aws.network.Route53`).
+   - Implement NACLs to control inbound and outbound traffic according to least privilege principles (using `diagrams.aws.network.Nacl`).
+
+6. **Security and Access Management**:
+   - Configure IAM roles to ensure proper access permissions for EC2 instances and other AWS services (using `diagrams.aws.security.IAM`).
+
+This architecture follows AWS best practices and ensures a scalable, secure, and highly available environment. For more details, refer to the AWS diagrams library documentation at https://diagrams.mingrammer.com/docs/nodes/aws.

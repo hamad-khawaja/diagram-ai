@@ -1,0 +1,1 @@
+Create a simple 3 tier AWS architecture with EC2 and arora
